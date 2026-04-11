@@ -1,4 +1,5 @@
 import os
+import traceback
 import yaml
 import threading
 import time
@@ -60,6 +61,19 @@ def create_app() -> Flask:
     app = Flask(__name__, static_folder=FRONTEND_DIR)
     CORS(app)
 
+    try:
+        _setup_app(app)
+    except Exception:
+        logger.exception(
+            "KRITIEKE FOUT tijdens create_app() — app start in fallback-modus:\n%s",
+            traceback.format_exc(),
+        )
+
+    return app
+
+
+def _setup_app(app: Flask) -> None:
+    """Configureert alle connectors en routes. Wordt aangeroepen vanuit create_app()."""
     try:
         config = load_config()
     except Exception as e:
@@ -210,7 +224,15 @@ def create_app() -> Flask:
     def api_dashboard():
         period = request.args.get("period", "mtd")
         try:
-            businesses, investments = get_all_data()
+            try:
+                businesses, investments = get_all_data()
+            except Exception:
+                logger.exception(
+                    "FOUT in get_all_data() — volledige traceback:\n%s",
+                    traceback.format_exc(),
+                )
+                raise
+
             businesses_data = aggregate_all_businesses(businesses, period)
             net_worth = build_net_worth(investments)
             changes = calculate_period_change(businesses)
@@ -244,6 +266,11 @@ def create_app() -> Flask:
                 "ing_mode": ing_mode
             })
         except Exception as e:
+            logger.exception(
+                "FOUT in /api/dashboard (period=%s) — volledige traceback:\n%s",
+                period,
+                traceback.format_exc(),
+            )
             return jsonify({"error": str(e)}), 500
 
     # ── API: ING status ───────────────────────────────────────────────────────
@@ -528,5 +555,3 @@ def create_app() -> Flask:
             return jsonify({"months": months, "last_updated": datetime.now().isoformat()})
         except Exception as e:
             return jsonify({"months": [], "error": str(e)}), 200
-
-    return app
