@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Secrets & credentials
+*.json
+!frontend/**/*.json
+~/.lars-dashboard/
+
+# Data — cache is regenerated, manual + quarterly are in Railway volume
+data/cache/
+
+# Logs
+*.log
+/tmp/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# PDF uploads (temp)
+*.pdf
