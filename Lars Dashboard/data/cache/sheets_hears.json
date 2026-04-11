@@ -1,0 +1,119 @@
+{
+  "data": {
+    "months": [
+      {
+        "year": 2025,
+        "month": 9,
+        "revenue": 3176.0,
+        "expenses": 3081.9,
+        "profit": 94.1,
+        "currency": "EUR",
+        "extra": {
+          "gross_margin": 1553.2,
+          "gross_margin_pct": 0.0,
+          "nett_margin_product": 912.1,
+          "nett_margin_product_pct": 0.0,
+          "profit_pct": 0.0,
+          "fee_lars": 94.1
+        }
+      },
+      {
+        "year": 2025,
+        "month": 10,
+        "revenue": 4916.5,
+        "expenses": 4703.1,
+        "profit": 213.4,
+        "currency": "EUR",
+        "extra": {
+          "gross_margin": 2736.0,
+          "gross_margin_pct": 0.0,
+          "nett_margin_product": 1422.7,
+          "nett_margin_product_pct": 0.0,
+          "profit_pct": 0.0,
+          "fee_lars": 213.4
+        }
+      },
+      {
+        "year": 2025,
+        "month": 11,
+        "revenue": 1314.1,
+        "expenses": 1295.3999999999999,
+        "profit": 18.7,
+        "currency": "EUR",
+        "extra": {
+          "gross_margin": 613.2,
+          "gross_margin_pct": 0.0,
+          "nett_margin_product": 124.8,
+          "nett_margin_product_pct": 0.0,
+          "profit_pct": 0.0,
+          "fee_lars": 18.7
+        }
+      },
+      {
+        "year": 2025,
+        "month": 12,
+        "revenue": 1928.9,
+        "expenses": 1894.3000000000002,
+        "profit": 34.6,
+        "currency": "EUR",
+        "extra": {
+          "gross_margin": 877.4,
+          "gross_margin_pct": 0.0,
+          "nett_margin_product": 230.8,
+          "nett_margin_product_pct": 0.0,
+          "profit_pct": 0.0,
+          "fee_lars": 34.6
+        }
+      },
+      {
+        "year": 2026,
+        "month": 1,
+        "revenue": 1497.6,
+        "expenses": 1454.5,
+        "profit": 43.1,
+        "currency": "EUR",
+        "extra": {
+          "gross_margin": 700.7,
+          "gross_margin_pct": 0.0,
+          "nett_margin_product": 287.5,
+          "nett_margin_product_pct": 0.0,
+          "profit_pct": 0.0,
+          "fee_lars": 43.1
+        }
+      },
+      {
+        "year": 2026,
+        "month": 2,
+        "revenue": 4733.4,
+        "expenses": 4572.299999999999,
+        "profit": 161.1,
+        "currency": "EUR",
+        "extra": {
+          "gross_margin": 2263.5,
+          "gross_margin_pct": 0.0,
+          "nett_margin_product": 1073.8,
+          "nett_margin_product_pct": 0.0,
+          "profit_pct": 0.0,
+          "fee_lars": 161.1
+        }
+      },
+      {
+        "year": 2026,
+        "month": 3,
+        "revenue": 5557.9,
+        "expenses": 5307.299999999999,
+        "profit": 250.6,
+        "currency": "EUR",
+        "extra": {
+          "gross_margin": 2534.9,
+          "gross_margin_pct": 0.0,
+          "nett_margin_product": 1671.0,
+          "nett_margin_product_pct": 0.0,
+          "profit_pct": 0.0,
+          "fee_lars": 250.6
+        }
+      }
+    ]
+  },
+  "saved_at": "2026-04-07T14:41:38.536922"
+}

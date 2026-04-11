@@ -1,0 +1,12 @@
+{
+  "data": {
+    "name": "Stocks",
+    "category": "stocks",
+    "current_value_eur": 16544.66,
+    "monthly_pnl_eur": 0.0,
+    "total_pnl_eur": 2669.08,
+    "daily_pnl_eur": 0.0,
+    "free_space_eur": 98.7
+  },
+  "saved_at": "2026-04-02T13:39:50.111191"
+}
