@@ -61,84 +61,105 @@ def create_app() -> Flask:
     app = Flask(__name__, static_folder=FRONTEND_DIR)
     CORS(app)
 
-    try:
-        _setup_app(app)
-    except Exception:
-        logger.exception(
-            "KRITIEKE FOUT tijdens create_app() — app start in fallback-modus:\n%s",
-            traceback.format_exc(),
-        )
+    connectors = _init_connectors()
+    _register_routes(app, connectors)
 
     return app
 
 
-def _setup_app(app: Flask) -> None:
-    """Configureert alle connectors en routes. Wordt aangeroepen vanuit create_app()."""
+def _init_connectors() -> dict:
+    """Initialiseer alle connectors. Fouten worden gelogd maar stoppen de app niet.
+    Geeft altijd een dict terug, ook als alle connectors falen."""
+
+    connectors: dict = {
+        "config": {},
+        "ing_config": {},
+        "ing_mode": "unavailable",
+        "sheets_connector": None,
+        "supplement_connector": None,
+        "revolut_connector": None,
+        "degiro_connector": None,
+        "ing_connector": None,
+        "investments_connector": None,
+    }
+
     try:
         config = load_config()
     except Exception as e:
         logger.warning("Kon configuratie niet laden, gebruik lege config: %s", e)
         config = {}
+
+    connectors["config"] = config
     ing_config = config.get("ing", {})
+    connectors["ing_config"] = ing_config
 
-    # ── Initialiseer connectors (fouten worden gelogd maar crashen de app niet) ──
-
-    sheets_connector = None
     try:
         from backend.connectors.google_sheets import GoogleSheetsConnector
-        sheets_connector = GoogleSheetsConnector(config.get("google_sheets", {}))
+        connectors["sheets_connector"] = GoogleSheetsConnector(config.get("google_sheets", {}))
         logger.info("GoogleSheetsConnector geïnitialiseerd")
     except Exception as e:
         logger.warning("GoogleSheetsConnector kon niet worden geïnitialiseerd: %s", e)
 
-    supplement_connector = None
     try:
         if SupplementManualConnector is not None:
-            supplement_connector = SupplementManualConnector(config.get("supplement_brand", {}))
+            connectors["supplement_connector"] = SupplementManualConnector(config.get("supplement_brand", {}))
             logger.info("SupplementManualConnector geïnitialiseerd")
         else:
             logger.warning("SupplementManualConnector niet beschikbaar (import mislukt)")
     except Exception as e:
         logger.warning("SupplementManualConnector kon niet worden geïnitialiseerd: %s", e)
 
-    revolut_connector = None
     try:
         from backend.connectors.revolut_manual import RevolutManualConnector
-        revolut_connector = RevolutManualConnector()
+        connectors["revolut_connector"] = RevolutManualConnector()
         logger.info("RevolutManualConnector geïnitialiseerd")
     except Exception as e:
         logger.warning("RevolutManualConnector kon niet worden geïnitialiseerd: %s", e)
 
-    degiro_connector = None
     try:
         from backend.connectors.degiro import DegiroConnector
-        degiro_connector = DegiroConnector(config.get("degiro", {}))
+        connectors["degiro_connector"] = DegiroConnector(config.get("degiro", {}))
         logger.info("DegiroConnector geïnitialiseerd")
     except Exception as e:
         logger.warning("DegiroConnector kon niet worden geïnitialiseerd: %s", e)
 
-    ing_connector = None
-    ing_mode = "unavailable"
     try:
         if _ing_is_configured(ing_config):
             from backend.connectors.ing_fints import IngFintsConnector
-            ing_connector = IngFintsConnector(ing_config)
-            ing_mode = "fints"
+            connectors["ing_connector"] = IngFintsConnector(ing_config)
+            connectors["ing_mode"] = "fints"
         else:
             from backend.connectors.ing_csv import IngCsvConnector
-            ing_connector = IngCsvConnector(ing_config)
-            ing_mode = "csv"
-        logger.info("ING connector geïnitialiseerd (mode: %s)", ing_mode)
+            connectors["ing_connector"] = IngCsvConnector(ing_config)
+            connectors["ing_mode"] = "csv"
+        logger.info("ING connector geïnitialiseerd (mode: %s)", connectors["ing_mode"])
     except Exception as e:
         logger.warning("ING connector kon niet worden geïnitialiseerd: %s", e)
 
-    investments_connector = None
     try:
         from backend.connectors.investments_manual import InvestmentsManualConnector
-        investments_connector = InvestmentsManualConnector()
+        connectors["investments_connector"] = InvestmentsManualConnector()
         logger.info("InvestmentsManualConnector geïnitialiseerd")
     except Exception as e:
         logger.warning("InvestmentsManualConnector kon niet worden geïnitialiseerd: %s", e)
+
+    return connectors
+
+
+def _register_routes(app: Flask, connectors: dict) -> None:
+    """Registreert ALLE routes. Wordt altijd uitgevoerd, ongeacht connector-fouten.
+    Route handlers degraderen graceful als een connector niet beschikbaar is."""
+
+    # Pak connector-referenties uit de dict zodat closures ze kunnen vangen
+    config = connectors["config"]
+    ing_config = connectors["ing_config"]
+    ing_mode = connectors["ing_mode"]
+    sheets_connector = connectors["sheets_connector"]
+    supplement_connector = connectors["supplement_connector"]
+    revolut_connector = connectors["revolut_connector"]
+    degiro_connector = connectors["degiro_connector"]
+    ing_connector = connectors["ing_connector"]
+    investments_connector = connectors["investments_connector"]
 
     # ── DeGiro keep-alive: elke 2 uur een lichte API call ──────────────────────
     def degiro_keep_alive():
@@ -210,14 +231,40 @@ def _setup_app(app: Flask) -> None:
         all_investments = degiro + revolut + manual
         return businesses, all_investments
 
+    # ── API: Health check (altijd beschikbaar) ────────────────────────────────
+    @app.route("/api/health")
+    def api_health():
+        """Altijd-beschikbaar health endpoint. Geeft connector-status terug."""
+        return jsonify({
+            "status": "ok",
+            "connectors": {
+                "sheets": sheets_connector is not None,
+                "supplement": supplement_connector is not None,
+                "revolut": revolut_connector is not None,
+                "degiro": degiro_connector is not None,
+                "ing": ing_connector is not None,
+                "investments": investments_connector is not None,
+            },
+            "ing_mode": ing_mode,
+            "timestamp": datetime.now().isoformat(),
+        })
+
     # ── Frontend routes ───────────────────────────────────────────────────────
     @app.route("/")
     def index():
-        return send_from_directory(FRONTEND_DIR, "index.html")
+        try:
+            return send_from_directory(FRONTEND_DIR, "index.html")
+        except Exception as e:
+            logger.warning("Kon index.html niet serveren vanuit %s: %s", FRONTEND_DIR, e)
+            return "<html><body><h1>Lars Dashboard</h1><p>Frontend niet gevonden.</p></body></html>", 200
 
     @app.route("/<path:filename>")
     def static_files(filename):
-        return send_from_directory(FRONTEND_DIR, filename)
+        try:
+            return send_from_directory(FRONTEND_DIR, filename)
+        except Exception as e:
+            logger.debug("Statisch bestand niet gevonden: %s (%s)", filename, e)
+            return "<html><body><h1>Lars Dashboard</h1><p>Bestand niet gevonden.</p></body></html>", 404
 
     # ── API: Hoofddashboard ───────────────────────────────────────────────────
     @app.route("/api/dashboard")
