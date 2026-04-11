@@ -7,13 +7,7 @@ from datetime import datetime
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
-from backend.connectors.google_sheets import GoogleSheetsConnector
 from backend.connectors.supplement_manual import SupplementManualConnector
-from backend.connectors.revolut_manual import RevolutManualConnector
-from backend.connectors.investments_manual import InvestmentsManualConnector
-from backend.connectors.ing_fints import IngFintsConnector
-from backend.connectors.ing_csv import IngCsvConnector
-from backend.connectors.degiro import DegiroConnector
 from backend.connectors.asset_history import save_snapshot, get_history
 from backend.aggregator import (
     aggregate_all_businesses,
@@ -25,6 +19,8 @@ from backend.aggregator import (
     build_retailers_detail,
     build_hears_detail
 )
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
@@ -50,36 +46,70 @@ def create_app() -> Flask:
     config = load_config()
     ing_config = config.get("ing", {})
 
-    # Initialiseer connectors
-    sheets_connector = GoogleSheetsConnector(config.get("google_sheets", {}))
+    # ── Initialiseer connectors (fouten worden gelogd maar crashen de app niet) ──
+
+    sheets_connector = None
+    try:
+        from backend.connectors.google_sheets import GoogleSheetsConnector
+        sheets_connector = GoogleSheetsConnector(config.get("google_sheets", {}))
+        logger.info("GoogleSheetsConnector geïnitialiseerd")
+    except Exception as e:
+        logger.warning("GoogleSheetsConnector kon niet worden geïnitialiseerd: %s", e)
+
     supplement_connector = SupplementManualConnector(config.get("supplement_brand", {}))
-    revolut_connector = RevolutManualConnector()
 
-    # Degiro connector (automatisch via API)
-    degiro_connector = DegiroConnector(config.get("degiro", {}))
+    revolut_connector = None
+    try:
+        from backend.connectors.revolut_manual import RevolutManualConnector
+        revolut_connector = RevolutManualConnector()
+        logger.info("RevolutManualConnector geïnitialiseerd")
+    except Exception as e:
+        logger.warning("RevolutManualConnector kon niet worden geïnitialiseerd: %s", e)
 
-    # ING connector: FinTS als geconfigureerd, anders CSV
-    if _ing_is_configured(ing_config):
-        ing_connector = IngFintsConnector(ing_config)
-        ing_mode = "fints"
-    else:
-        ing_connector = IngCsvConnector(ing_config)
-        ing_mode = "csv"
+    degiro_connector = None
+    try:
+        from backend.connectors.degiro import DegiroConnector
+        degiro_connector = DegiroConnector(config.get("degiro", {}))
+        logger.info("DegiroConnector geïnitialiseerd")
+    except Exception as e:
+        logger.warning("DegiroConnector kon niet worden geïnitialiseerd: %s", e)
 
-    # Manual investments (savings)
-    investments_connector = InvestmentsManualConnector()
+    ing_connector = None
+    ing_mode = "unavailable"
+    try:
+        if _ing_is_configured(ing_config):
+            from backend.connectors.ing_fints import IngFintsConnector
+            ing_connector = IngFintsConnector(ing_config)
+            ing_mode = "fints"
+        else:
+            from backend.connectors.ing_csv import IngCsvConnector
+            ing_connector = IngCsvConnector(ing_config)
+            ing_mode = "csv"
+        logger.info("ING connector geïnitialiseerd (mode: %s)", ing_mode)
+    except Exception as e:
+        logger.warning("ING connector kon niet worden geïnitialiseerd: %s", e)
+
+    investments_connector = None
+    try:
+        from backend.connectors.investments_manual import InvestmentsManualConnector
+        investments_connector = InvestmentsManualConnector()
+        logger.info("InvestmentsManualConnector geïnitialiseerd")
+    except Exception as e:
+        logger.warning("InvestmentsManualConnector kon niet worden geïnitialiseerd: %s", e)
 
     # ── DeGiro keep-alive: elke 2 uur een lichte API call ──────────────────────
     def degiro_keep_alive():
-        logger = logging.getLogger("degiro_keepalive")
+        keepalive_logger = logging.getLogger("degiro_keepalive")
         while True:
             time.sleep(2 * 3600)  # 2 uur
+            if degiro_connector is None:
+                continue
             try:
                 result = degiro_connector.fetch()
                 src = result[0].source if result else "unknown"
-                logger.info("DeGiro keep-alive ping — source: %s", src)
+                keepalive_logger.info("DeGiro keep-alive ping — source: %s", src)
             except Exception as e:
-                logger.warning("DeGiro keep-alive failed: %s", e)
+                keepalive_logger.warning("DeGiro keep-alive failed: %s", e)
 
     keepalive_thread = threading.Thread(target=degiro_keep_alive, daemon=True)
     keepalive_thread.start()
@@ -88,7 +118,7 @@ def create_app() -> Flask:
         from backend.cache import load_manual
         from backend.connectors.base import BusinessData, MonthData
 
-        businesses = sheets_connector.fetch() + supplement_connector.fetch()
+        businesses = (sheets_connector.fetch() if sheets_connector else []) + supplement_connector.fetch()
 
         # Add SP Agency (manual profit data) as a proper business
         spa_data = load_manual("spagency")
@@ -131,9 +161,9 @@ def create_app() -> Flask:
         except Exception:
             pass
 
-        revolut = revolut_connector.fetch()
-        degiro = degiro_connector.fetch()
-        manual = investments_connector.fetch()
+        revolut = revolut_connector.fetch() if revolut_connector else []
+        degiro = degiro_connector.fetch() if degiro_connector else []
+        manual = investments_connector.fetch() if investments_connector else []
         all_investments = degiro + revolut + manual
         return businesses, all_investments
 
@@ -203,6 +233,8 @@ def create_app() -> Flask:
     @app.route("/api/ing/csv", methods=["POST"])
     def api_ing_csv_upload():
         """Verwerkt een geüpload ING CSV afschrift."""
+        if ing_connector is None:
+            return jsonify({"error": "ING connector niet beschikbaar. Controleer de configuratie."}), 503
         try:
             if request.files:
                 # Multipart file upload
@@ -226,6 +258,8 @@ def create_app() -> Flask:
     @app.route("/api/ing/refresh", methods=["POST"])
     def api_ing_refresh():
         """Vernieuwt ING-saldo via FinTS (verwijdert cache zodat data opnieuw opgehaald wordt)."""
+        if ing_connector is None:
+            return jsonify({"error": "ING connector niet beschikbaar. Controleer de configuratie."}), 503
         if ing_mode != "fints":
             return jsonify({"error": "FinTS niet geconfigureerd. Gebruik CSV import."}), 400
         try:
@@ -260,9 +294,12 @@ def create_app() -> Flask:
     # ── API: Revolut crypto invoer ────────────────────────────────────────────
     @app.route("/api/revolut", methods=["POST"])
     def api_revolut_save():
+        if revolut_connector is None:
+            return jsonify({"error": "Revolut connector niet beschikbaar. Controleer de configuratie."}), 503
         body = request.json
         try:
             holdings = body.get("holdings", [])
+            from backend.connectors.revolut_manual import RevolutManualConnector
             RevolutManualConnector.save_holdings(holdings)
             return jsonify({"status": "ok"})
         except Exception as e:
@@ -270,15 +307,21 @@ def create_app() -> Flask:
 
     @app.route("/api/revolut", methods=["GET"])
     def api_revolut_get():
+        if revolut_connector is None:
+            return jsonify({"holdings": [], "error": "Revolut connector niet beschikbaar."}), 200
+        from backend.connectors.revolut_manual import RevolutManualConnector
         holdings = RevolutManualConnector.get_holdings()
         return jsonify({"holdings": holdings})
 
     # ── API: Manual investments ────────────────────────────────────────────────
     @app.route("/api/investments", methods=["POST"])
     def api_investments_save():
+        if investments_connector is None:
+            return jsonify({"error": "Investments connector niet beschikbaar. Controleer de configuratie."}), 503
         body = request.json or {}
         try:
             if "savings_balance" in body:
+                from backend.connectors.investments_manual import InvestmentsManualConnector
                 InvestmentsManualConnector.save_savings(float(body["savings_balance"]))
             return jsonify({"status": "ok"})
         except Exception as e:
@@ -286,13 +329,19 @@ def create_app() -> Flask:
 
     @app.route("/api/loans", methods=["GET"])
     def api_loans_get():
+        if investments_connector is None:
+            return jsonify({"items": [], "error": "Investments connector niet beschikbaar."}), 200
+        from backend.connectors.investments_manual import InvestmentsManualConnector
         items = InvestmentsManualConnector.get_loan_items()
         return jsonify({"items": items})
 
     @app.route("/api/loans", methods=["POST"])
     def api_loans_save():
+        if investments_connector is None:
+            return jsonify({"error": "Investments connector niet beschikbaar. Controleer de configuratie."}), 503
         body = request.json or {}
         try:
+            from backend.connectors.investments_manual import InvestmentsManualConnector
             InvestmentsManualConnector.save_loan_items(body.get("items", []))
             return jsonify({"status": "ok"})
         except Exception as e:
@@ -320,12 +369,16 @@ def create_app() -> Flask:
     # ── API: Degiro status ────────────────────────────────────────────────────
     @app.route("/api/degiro/status")
     def api_degiro_status():
+        if degiro_connector is None:
+            return jsonify({"status": "unavailable", "error": "DeGiro connector niet beschikbaar. Controleer de configuratie."})
         return jsonify(degiro_connector.get_status())
 
     # ── API: Degiro login stap 1 ──────────────────────────────────────────────
     @app.route("/api/degiro/login/start", methods=["POST"])
     def api_degiro_login_start():
         """Stap 1: gebruikersnaam + wachtwoord. Degiro stuurt SMS als 2FA actief."""
+        if degiro_connector is None:
+            return jsonify({"status": "error", "message": "DeGiro connector niet beschikbaar. Controleer de configuratie."}), 503
         body = request.json or {}
         username = body.get("username", "").strip()
         password = body.get("password", "").strip()
@@ -338,6 +391,8 @@ def create_app() -> Flask:
     @app.route("/api/degiro/login/verify", methods=["POST"])
     def api_degiro_login_verify():
         """Stap 2: SMS-code invoeren om login te voltooien."""
+        if degiro_connector is None:
+            return jsonify({"status": "error", "message": "DeGiro connector niet beschikbaar. Controleer de configuratie."}), 503
         body = request.json or {}
         otp_raw = str(body.get("otp", "")).strip().replace(" ", "")
         if not otp_raw or not otp_raw.isdigit():
@@ -349,6 +404,8 @@ def create_app() -> Flask:
     @app.route("/api/degiro/login/confirm", methods=["POST"])
     def api_degiro_login_confirm():
         """Na goedkeuring in de Degiro app: login opnieuw proberen."""
+        if degiro_connector is None:
+            return jsonify({"status": "error", "message": "DeGiro connector niet beschikbaar. Controleer de configuratie."}), 503
         result = degiro_connector.login_confirm()
         return jsonify(result)
 
@@ -356,6 +413,8 @@ def create_app() -> Flask:
     @app.route("/api/degiro/refresh", methods=["POST"])
     def api_degiro_refresh():
         """Forceert verse Degiro data (verwijdert cache)."""
+        if degiro_connector is None:
+            return jsonify({"error": "DeGiro connector niet beschikbaar. Controleer de configuratie."}), 503
         try:
             from backend.cache import save_cache
             save_cache("degiro_portfolio", {})
