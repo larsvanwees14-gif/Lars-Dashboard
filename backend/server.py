@@ -7,8 +7,25 @@ from datetime import datetime
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
-from backend.connectors.supplement_manual import SupplementManualConnector
-from backend.connectors.asset_history import save_snapshot, get_history
+try:
+    from backend.connectors.supplement_manual import SupplementManualConnector
+    _supplement_module_available = True
+except Exception as _e:
+    SupplementManualConnector = None  # type: ignore[assignment,misc]
+    _supplement_module_available = False
+    import logging as _logging
+    _logging.getLogger(__name__).warning("SupplementManualConnector kon niet worden geïmporteerd: %s", _e)
+
+try:
+    from backend.connectors.asset_history import save_snapshot, get_history
+    _asset_history_available = True
+except Exception as _e:
+    save_snapshot = None  # type: ignore[assignment]
+    get_history = None  # type: ignore[assignment]
+    _asset_history_available = False
+    import logging as _logging
+    _logging.getLogger(__name__).warning("asset_history kon niet worden geïmporteerd: %s", _e)
+
 from backend.aggregator import (
     aggregate_all_businesses,
     build_monthly_chart_data,
@@ -43,7 +60,11 @@ def create_app() -> Flask:
     app = Flask(__name__, static_folder=FRONTEND_DIR)
     CORS(app)
 
-    config = load_config()
+    try:
+        config = load_config()
+    except Exception as e:
+        logger.warning("Kon configuratie niet laden, gebruik lege config: %s", e)
+        config = {}
     ing_config = config.get("ing", {})
 
     # ── Initialiseer connectors (fouten worden gelogd maar crashen de app niet) ──
@@ -56,7 +77,15 @@ def create_app() -> Flask:
     except Exception as e:
         logger.warning("GoogleSheetsConnector kon niet worden geïnitialiseerd: %s", e)
 
-    supplement_connector = SupplementManualConnector(config.get("supplement_brand", {}))
+    supplement_connector = None
+    try:
+        if SupplementManualConnector is not None:
+            supplement_connector = SupplementManualConnector(config.get("supplement_brand", {}))
+            logger.info("SupplementManualConnector geïnitialiseerd")
+        else:
+            logger.warning("SupplementManualConnector niet beschikbaar (import mislukt)")
+    except Exception as e:
+        logger.warning("SupplementManualConnector kon niet worden geïnitialiseerd: %s", e)
 
     revolut_connector = None
     try:
@@ -118,7 +147,7 @@ def create_app() -> Flask:
         from backend.cache import load_manual
         from backend.connectors.base import BusinessData, MonthData
 
-        businesses = (sheets_connector.fetch() if sheets_connector else []) + supplement_connector.fetch()
+        businesses = (sheets_connector.fetch() if sheets_connector else []) + (supplement_connector.fetch() if supplement_connector else [])
 
         # Add SP Agency (manual profit data) as a proper business
         spa_data = load_manual("spagency")
@@ -193,10 +222,11 @@ def create_app() -> Flask:
 
             # Auto-snapshot: sla portfolio op als deze maand nog geen snapshot heeft
             try:
-                save_snapshot(net_worth)
+                if save_snapshot is not None:
+                    save_snapshot(net_worth)
             except Exception:
                 pass
-            asset_history = get_history()
+            asset_history = get_history() if get_history is not None else []
 
             return jsonify({
                 "period": period,
@@ -279,6 +309,8 @@ def create_app() -> Flask:
     # ── API: Supplement invoer ────────────────────────────────────────────────
     @app.route("/api/supplement", methods=["POST"])
     def api_supplement_save():
+        if SupplementManualConnector is None:
+            return jsonify({"error": "Supplement connector niet beschikbaar. Controleer de configuratie."}), 503
         body = request.json
         try:
             SupplementManualConnector.save_month(
