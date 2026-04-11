@@ -4,14 +4,14 @@ import logging
 from datetime import datetime
 from flask import Flask, jsonify, request, send_from_directory
 
-# ── Logging configuratie ──────────────────────────────────────────────────────
+# ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-# ── Paden ─────────────────────────────────────────────────────────────────────
+# ── Paths ─────────────────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 DATA_DIR = os.environ.get("DATA_DIR") or os.path.join(BASE_DIR, "data")
@@ -22,38 +22,66 @@ logger.info("FRONTEND_DIR: %s", FRONTEND_DIR)
 logger.info("DATA_DIR    : %s", DATA_DIR)
 
 
-# ── Config laden ──────────────────────────────────────────────────────────────
+# ── Config ────────────────────────────────────────────────────────────────────
 
 def _load_config() -> dict:
     config_path = os.path.join(BASE_DIR, "config.yaml")
     try:
         import yaml
         with open(config_path, "r") as f:
-            return yaml.safe_load(f) or {}
+            cfg = yaml.safe_load(f) or {}
+            logger.info("config.yaml geladen (%d top-level keys)", len(cfg))
+            return cfg
     except Exception as e:
         logger.warning("Kon config.yaml niet laden: %s", e)
         return {}
 
 
+# ── Empty / default data structures ──────────────────────────────────────────
+
+def _empty_net_worth() -> dict:
+    return {"total_eur": 0.0, "monthly_pnl_eur": 0.0, "breakdown": []}
+
+
+def _empty_detail() -> dict:
+    return {"months": [], "current": None, "previous": None, "changes": {}, "source": "not_configured"}
+
+
+def _empty_chart_data() -> dict:
+    return {"labels": ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"], "datasets": []}
+
+
+def _empty_kpis() -> dict:
+    return {"revenue_mtd": 0.0, "profit_mtd": 0.0, "roi_pct": 0.0}
+
+
+def _empty_kpi_changes() -> dict:
+    return {"current": 0.0, "previous": 0.0, "change_pct": 0.0, "direction": "up"}
+
+
 # ── Connector helpers ─────────────────────────────────────────────────────────
 
-def _load_businesses(config: dict):
-    """Laad alle business data via Google Sheets connector (met cache fallback)."""
-    from backend.connectors.google_sheets import GoogleSheetsConnector
-    from backend.connectors.supplement_manual import SupplementManualConnector
-
+def _load_businesses(config: dict) -> list:
+    """Load all business data via connectors, with full fallback on any error."""
     businesses = []
 
     # Google Sheets businesses (Bol, Retailers, Hears)
     gs_config = config.get("google_sheets", {})
     if gs_config:
         try:
+            from backend.connectors.google_sheets import GoogleSheetsConnector
             connector = GoogleSheetsConnector(gs_config)
-            businesses.extend(connector.fetch())
+            result = connector.fetch()
+            businesses.extend(result)
+            logger.info("GoogleSheetsConnector: %d businesses geladen", len(result))
         except Exception as e:
             logger.warning("GoogleSheetsConnector fout: %s", e)
-            # Fall back to cached data directly
-            businesses.extend(_load_businesses_from_cache(gs_config))
+            try:
+                businesses.extend(_load_businesses_from_cache(gs_config))
+            except Exception as ce:
+                logger.warning("Cache fallback ook mislukt: %s", ce)
+    else:
+        logger.info("Geen google_sheets config — Google Sheets overgeslagen")
 
     # US Supplement Brand (manual)
     supp_config = config.get("supplement_brand", {
@@ -62,16 +90,19 @@ def _load_businesses(config: dict):
         "currency": "USD",
     })
     try:
+        from backend.connectors.supplement_manual import SupplementManualConnector
         supp_connector = SupplementManualConnector(supp_config)
-        businesses.extend(supp_connector.fetch())
+        result = supp_connector.fetch()
+        businesses.extend(result)
+        logger.info("SupplementManualConnector: %d businesses geladen", len(result))
     except Exception as e:
         logger.warning("SupplementManualConnector fout: %s", e)
 
     return businesses
 
 
-def _load_businesses_from_cache(gs_config: dict):
-    """Laad businesses rechtstreeks uit cache-bestanden als fallback."""
+def _load_businesses_from_cache(gs_config: dict) -> list:
+    """Load businesses directly from cache files as fallback."""
     from backend.connectors.base import BusinessData, MonthData
     from backend.cache import load_cache
 
@@ -97,6 +128,7 @@ def _load_businesses_from_cache(gs_config: dict):
                 months=months, source="google_sheets_cached",
                 last_updated=cached.get("saved_at")
             ))
+            logger.info("Cache fallback: %s (%d maanden)", business_name, len(months))
         else:
             businesses.append(BusinessData(
                 name=business_name, entity=entity,
@@ -105,112 +137,173 @@ def _load_businesses_from_cache(gs_config: dict):
     return businesses
 
 
-def _load_investments(config: dict):
-    """Laad alle investment data."""
-    from backend.connectors.investments_manual import InvestmentsManualConnector
-    from backend.connectors.revolut_manual import RevolutManualConnector
-    from backend.connectors.degiro import DegiroConnector
-
+def _load_investments(config: dict) -> list:
+    """Load all investment data with per-connector error isolation."""
     investments = []
 
     # Savings + Loans (manual)
     try:
-        investments.extend(InvestmentsManualConnector().fetch())
+        from backend.connectors.investments_manual import InvestmentsManualConnector
+        result = InvestmentsManualConnector().fetch()
+        investments.extend(result)
+        logger.info("InvestmentsManualConnector: %d items", len(result))
     except Exception as e:
         logger.warning("InvestmentsManualConnector fout: %s", e)
 
     # Revolut Crypto (manual)
     try:
-        investments.extend(RevolutManualConnector().fetch())
+        from backend.connectors.revolut_manual import RevolutManualConnector
+        result = RevolutManualConnector().fetch()
+        investments.extend(result)
+        logger.info("RevolutManualConnector: %d items", len(result))
     except Exception as e:
         logger.warning("RevolutManualConnector fout: %s", e)
 
     # DeGiro Stocks
     degiro_config = config.get("degiro", {"cache_ttl_hours": 4})
     try:
-        investments.extend(DegiroConnector(degiro_config).fetch())
+        from backend.connectors.degiro import DegiroConnector
+        result = DegiroConnector(degiro_config).fetch()
+        investments.extend(result)
+        logger.info("DegiroConnector: %d items", len(result))
     except Exception as e:
         logger.warning("DegiroConnector fout: %s", e)
 
     return investments
 
 
-# ── Dashboard aggregatie ──────────────────────────────────────────────────────
+# ── Dashboard aggregation ─────────────────────────────────────────────────────
 
 def _build_dashboard(period: str, config: dict) -> dict:
-    """Bouw het volledige dashboard payload."""
-    from backend.aggregator import (
-        aggregate_all_businesses,
-        build_monthly_chart_data,
-        calculate_period_change,
-        build_net_worth,
-        build_entity_view,
-        build_bol_detail,
-        build_retailers_detail,
-        build_hears_detail,
-    )
-    from backend.connectors.asset_history import get_history, save_snapshot
+    """Build the full dashboard payload. Every step has an isolated try/except
+    so a single failing connector never breaks the entire response."""
 
-    businesses = _load_businesses(config)
-    investments = _load_investments(config)
+    now_iso = datetime.now().isoformat() + "Z"
 
-    # Aggregeer businesses
-    agg = aggregate_all_businesses(businesses, period)
-    chart_data = build_monthly_chart_data(businesses)
-    period_change = calculate_period_change(businesses)
-    net_worth = build_net_worth(investments)
-    entities = build_entity_view(businesses, period)
-
-    # Sla asset snapshot op (eenmalig per maand)
+    # ── Load raw data ─────────────────────────────────────────────────────────
     try:
-        save_snapshot(net_worth)
+        businesses = _load_businesses(config)
     except Exception as e:
-        logger.warning("save_snapshot fout: %s", e)
+        logger.exception("_load_businesses volledig mislukt")
+        businesses = []
 
-    # Asset history
-    asset_history_raw = get_history()
-    asset_history = [
-        {
-            "date": s.get("date", ""),
-            "year": s.get("year"),
-            "month": s.get("month"),
-            "total": s.get("total", 0),
-            "stocks": s.get("stocks", 0),
-            "crypto": s.get("crypto", 0),
-            "savings": s.get("savings", 0),
-            "loans": s.get("loans", 0),
-        }
-        for s in asset_history_raw
-    ]
+    try:
+        investments = _load_investments(config)
+    except Exception as e:
+        logger.exception("_load_investments volledig mislukt")
+        investments = []
 
-    # Detail views
-    bol_detail = build_bol_detail(businesses)
-    retailers_detail = build_retailers_detail(businesses)
-    hears_detail = build_hears_detail(businesses)
+    # ── Aggregate businesses ──────────────────────────────────────────────────
+    try:
+        from backend.aggregator import aggregate_all_businesses
+        agg = aggregate_all_businesses(businesses, period)
+    except Exception as e:
+        logger.warning("aggregate_all_businesses fout: %s", e)
+        agg = {"total": {"revenue": 0.0, "expenses": 0.0, "profit": 0.0, "margin": 0.0}, "businesses": []}
 
-    # KPIs
-    total = agg["total"]
+    try:
+        from backend.aggregator import build_monthly_chart_data
+        chart_data = build_monthly_chart_data(businesses)
+    except Exception as e:
+        logger.warning("build_monthly_chart_data fout: %s", e)
+        chart_data = _empty_chart_data()
+
+    try:
+        from backend.aggregator import calculate_period_change
+        period_change = calculate_period_change(businesses)
+    except Exception as e:
+        logger.warning("calculate_period_change fout: %s", e)
+        period_change = _empty_kpi_changes()
+
+    try:
+        from backend.aggregator import build_net_worth
+        net_worth = build_net_worth(investments)
+    except Exception as e:
+        logger.warning("build_net_worth fout: %s", e)
+        net_worth = _empty_net_worth()
+
+    try:
+        from backend.aggregator import build_entity_view
+        entities = build_entity_view(businesses, period)
+    except Exception as e:
+        logger.warning("build_entity_view fout: %s", e)
+        entities = []
+
+    # ── Asset history snapshot ────────────────────────────────────────────────
+    try:
+        from backend.connectors.asset_history import save_snapshot, get_history
+        save_snapshot(net_worth)
+        asset_history_raw = get_history()
+        asset_history = [
+            {
+                "date": s.get("date", ""),
+                "year": s.get("year"),
+                "month": s.get("month"),
+                "total": s.get("total", 0),
+                "stocks": s.get("stocks", 0),
+                "crypto": s.get("crypto", 0),
+                "savings": s.get("savings", 0),
+                "loans": s.get("loans", 0),
+            }
+            for s in asset_history_raw
+        ]
+    except Exception as e:
+        logger.warning("asset_history fout: %s", e)
+        asset_history = []
+
+    # ── Detail views ──────────────────────────────────────────────────────────
+    try:
+        from backend.aggregator import build_bol_detail
+        bol_detail = build_bol_detail(businesses)
+    except Exception as e:
+        logger.warning("build_bol_detail fout: %s", e)
+        bol_detail = _empty_detail()
+
+    try:
+        from backend.aggregator import build_retailers_detail
+        retailers_detail = build_retailers_detail(businesses)
+    except Exception as e:
+        logger.warning("build_retailers_detail fout: %s", e)
+        retailers_detail = _empty_detail()
+
+    try:
+        from backend.aggregator import build_hears_detail
+        hears_detail = build_hears_detail(businesses)
+    except Exception as e:
+        logger.warning("build_hears_detail fout: %s", e)
+        hears_detail = _empty_detail()
+
+    # ── KPIs ──────────────────────────────────────────────────────────────────
+    total = agg.get("total", {})
     kpis = {
-        "revenue_mtd": total["revenue"],
-        "profit_mtd": total["profit"],
-        "roi_pct": total["margin"],
+        "revenue_mtd": total.get("revenue", 0.0),
+        "profit_mtd": total.get("profit", 0.0),
+        "roi_pct": total.get("margin", 0.0),
     }
 
-    return {
-        "last_refresh": datetime.now().isoformat() + "Z",
+    payload = {
+        "last_refresh": now_iso,
         "period": period,
         "net_worth": net_worth,
         "kpis": kpis,
         "kpi_changes": period_change,
-        "businesses": agg["businesses"],
+        "businesses": agg.get("businesses", []),
         "chart_data": chart_data,
         "asset_history": asset_history,
         "bol_detail": bol_detail,
         "retailers_detail": retailers_detail,
         "hears_detail": hears_detail,
-        "investments": {"items": agg["businesses"]},
+        "investments": {"items": agg.get("businesses", [])},
         "entities": entities,
     }
+
+    logger.info(
+        "Dashboard gebouwd: %d businesses, %d investments, %d asset_history snapshots",
+        len(agg.get("businesses", [])),
+        len(investments),
+        len(asset_history),
+    )
+    return payload
 
 
 # ── App factory ───────────────────────────────────────────────────────────────
@@ -258,8 +351,24 @@ def create_app() -> Flask:
             data = _build_dashboard(period, config)
             return jsonify(data)
         except Exception as e:
-            logger.exception("Fout bij opbouwen dashboard")
-            return jsonify({"error": str(e)}), 500
+            logger.exception("Fout bij opbouwen dashboard — stuur lege fallback terug")
+            # Always return a valid structure so the frontend can render
+            return jsonify({
+                "last_refresh": datetime.now().isoformat() + "Z",
+                "period": period,
+                "net_worth": _empty_net_worth(),
+                "kpis": _empty_kpis(),
+                "kpi_changes": _empty_kpi_changes(),
+                "businesses": [],
+                "chart_data": _empty_chart_data(),
+                "asset_history": [],
+                "bol_detail": _empty_detail(),
+                "retailers_detail": _empty_detail(),
+                "hears_detail": _empty_detail(),
+                "investments": {"items": []},
+                "entities": [],
+                "_error": str(e),
+            })
 
     # ── POST /api/supplement ──────────────────────────────────────────────────
     @app.route("/api/supplement", methods=["POST"])
@@ -319,16 +428,19 @@ def create_app() -> Flask:
             return jsonify(net_worth)
         except Exception as e:
             logger.exception("Fout bij ophalen investments")
-            return jsonify({"error": str(e)}), 500
+            return jsonify(_empty_net_worth())
 
     # ── POST /api/investments ─────────────────────────────────────────────────
     @app.route("/api/investments", methods=["POST"])
     def api_investments_post():
-        """Sla savings balance op."""
+        """Sla savings balance op.
+        Accepts: {"savings": 1234.56} or {"savings_balance": 1234.56}
+        """
         from backend.connectors.investments_manual import InvestmentsManualConnector
         body = request.get_json(force=True, silent=True) or {}
         try:
-            savings = body.get("savings")
+            # Support both key names used by the frontend
+            savings = body.get("savings") if body.get("savings") is not None else body.get("savings_balance")
             if savings is not None:
                 InvestmentsManualConnector.save_savings(float(savings))
                 logger.info("Savings opgeslagen: %.2f", float(savings))
@@ -601,8 +713,14 @@ def create_app() -> Flask:
         return send_from_directory(FRONTEND_DIR, filename)
 
     logger.info(
-        "create_app() klaar — routes geregistreerd: /, /api/health, /api/dashboard, "
+        "create_app() klaar — routes: /, /api/health, /api/dashboard, "
         "/api/supplement, /api/revolut, /api/investments, /api/spagency, /api/loans, "
-        "/api/shopify, /api/degiro/*, /api/quarterly/*"
+        "/api/shopify, /api/degiro/login/start, /api/degiro/login/confirm, "
+        "/api/degiro/login/verify, /api/degiro/status, /api/degiro/refresh, "
+        "/api/quarterly/<slug>, /api/quarterly/upload"
     )
     return app
+
+
+# ── WSGI entry point ──────────────────────────────────────────────────────────
+app = create_app()
