@@ -2,10 +2,8 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "gunicorn 'backend.server:create_app()' --bind 0.0.0.0:$PORT --workers 1 --timeout 120"
+startCommand = "gunicorn 'backend.server:create_app()' --bind 0.0.0.0:8080 --workers 1 --timeout 120"
 healthcheckPath = "/"
 healthcheckTimeout = 30
 restartPolicyType = "on_failure"
 
-[[volumes]]
-mountPath = "/data"
