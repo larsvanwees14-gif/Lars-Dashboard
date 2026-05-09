@@ -134,7 +134,7 @@ class GoogleSheetsConnector(BaseConnector):
 
         result = service.spreadsheets().values().get(
             spreadsheetId=spreadsheet_id,
-            range=f"'{tab}'!A1:J100"
+            range=f"'{tab}'!A1:J200"
         ).execute()
         rows = result.get("values", [])
 
@@ -188,14 +188,18 @@ class GoogleSheetsConnector(BaseConnector):
                 block["profit"] = safe_float(val)
                 block["profit_pct"] = safe_float(pct)
 
-            # Profit Lars / Fee Lars — check all cells, exact match only
+            # Fee Lars detection — scan all cells in this row.
+            # Priority: "Profit Fee Lars" (Lars's net profit after his own costs)
+            #           > "Fee Lars" / "Profit Lars" (invoice amount, fallback)
             for ci in range(len(row)):
                 cell_str = str(row[ci]).strip()
-                if cell_str in ("Profit Lars", "Fee Lars") and ci + 1 < len(row):
-                    parsed_fee = safe_float(row[ci + 1])
-                    if parsed_fee != 0 or "fee_lars" not in block:
-                        block["fee_lars"] = parsed_fee
-                    break
+                if cell_str == "Profit Fee Lars" and ci + 1 < len(row):
+                    # Highest priority — always overwrite
+                    block["fee_lars"] = safe_float(row[ci + 1])
+                elif cell_str in ("Profit Lars", "Fee Lars") and ci + 1 < len(row):
+                    # Only use as fallback if "Profit Fee Lars" not yet found
+                    if "fee_lars" not in block:
+                        block["fee_lars"] = safe_float(row[ci + 1])
 
         # Don't forget the last block
         if current_month and block:
@@ -206,19 +210,22 @@ class GoogleSheetsConnector(BaseConnector):
     def _build_overview_month(self, month_name: str, block: dict) -> MonthData:
         """Converts a month name + data block into a MonthData."""
         month_num = MONTH_NAMES.get(month_name.lower(), 0)
-        # Determine year: months June-Dec = previous year if we're early in the year
+        # Determine year: maanden na de huidige maand = vorig jaar
         today_year = datetime.now().year
         today_month = datetime.now().month
-        if month_num > today_month + 1:
+        if month_num > today_month:
             year = today_year - 1
         else:
             year = today_year
 
         revenue = block.get("revenue", 0)
-        # Use fee_lars (Profit Lars) as profit when available (Retailers/Hears).
-        # Falls back to "Nett Margin Business" for Opalgoods which has no fee_lars.
-        profit = block.get("fee_lars", block.get("profit", 0))
+        # profit = Nett Margin Business (full business profit — what the company earns)
+        profit = block.get("profit", 0)
+        # fee_lars lives in extra["fee_lars"] = what Lars personally earns from the brand
         expenses = revenue - profit if revenue else 0
+
+        # Build extra: exclude "revenue" and "profit" (profit is on MonthData directly)
+        extra = {k: v for k, v in block.items() if k not in ("revenue", "profit")}
 
         return MonthData(
             year=year,
@@ -227,7 +234,7 @@ class GoogleSheetsConnector(BaseConnector):
             expenses=expenses,
             profit=profit,
             currency="EUR",
-            extra={k: v for k, v in block.items() if k not in ("revenue", "profit")}
+            extra=extra
         )
 
     def _read_sheet_fixed_cells(self, spreadsheet_id: str, sheet_config: dict) -> list[MonthData]:

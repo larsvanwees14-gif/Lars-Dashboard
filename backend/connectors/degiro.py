@@ -457,6 +457,52 @@ class DegiroConnector(BaseConnector):
         except Exception as e:
             return {"status": "error", "message": f"Fout bij verificatie: {str(e)[:150]}"}
 
+    # ── Helpers: cache fallback + auto re-login ───────────────────────────────
+
+    def _stale_or_expired(self) -> list[InvestmentData]:
+        """Geeft gecachte data terug als fallback, of session_expired als er geen cache is."""
+        cached = load_cache(CACHE_KEY)
+        if cached and "data" in cached and cached["data"]:
+            d = cached["data"]
+            return [InvestmentData(
+                name=d.get("name", "Stocks"),
+                category=d.get("category", "stocks"),
+                current_value_eur=d.get("current_value_eur", 0.0),
+                monthly_pnl_eur=d.get("monthly_pnl_eur", 0.0),
+                total_pnl_eur=d.get("total_pnl_eur", 0.0),
+                daily_pnl_eur=d.get("daily_pnl_eur", 0.0),
+                free_space_eur=d.get("free_space_eur", 0.0),
+                source="degiro_stale",
+                last_updated=cached.get("saved_at")
+            )]
+        _clear_session()
+        return [InvestmentData(
+            name="Stocks",
+            category="stocks",
+            source="session_expired",
+            last_updated="Sessie verlopen — klik 'Opnieuw verbinden'"
+        )]
+
+    def _try_auto_relogin(self) -> Optional[InvestmentData]:
+        """
+        Probeert automatisch opnieuw in te loggen via DEGIRO_USERNAME + DEGIRO_PASSWORD env vars.
+        Werkt alleen als DeGiro geen 2FA vereist voor deze sessie.
+        Geeft InvestmentData terug bij succes, None als het niet lukt of env vars ontbreken.
+        """
+        username = os.environ.get("DEGIRO_USERNAME")
+        password = os.environ.get("DEGIRO_PASSWORD")
+        if not username or not password:
+            return None
+        try:
+            result = self.login_start(username, password)
+            if result.get("status") == "logged_in":
+                # Succes: nu verse data ophalen
+                fresh = self.fetch()
+                return fresh[0] if fresh else None
+        except Exception:
+            pass
+        return None
+
     # ── Portfolio ophalen ─────────────────────────────────────────────────────
 
     def fetch(self) -> list[InvestmentData]:
@@ -481,6 +527,25 @@ class DegiroConnector(BaseConnector):
         # Check of we een session hebben
         session = _load_session()
         if not session:
+            # Probeer auto re-login via env vars
+            auto = self._try_auto_relogin()
+            if auto:
+                return [auto]
+            # Geen session, geen env vars → toon cache of not_connected
+            cached = load_cache(CACHE_KEY)
+            if cached and "data" in cached and cached["data"]:
+                d = cached["data"]
+                return [InvestmentData(
+                    name=d.get("name", "Stocks"),
+                    category=d.get("category", "stocks"),
+                    current_value_eur=d.get("current_value_eur", 0.0),
+                    monthly_pnl_eur=d.get("monthly_pnl_eur", 0.0),
+                    total_pnl_eur=d.get("total_pnl_eur", 0.0),
+                    daily_pnl_eur=d.get("daily_pnl_eur", 0.0),
+                    free_space_eur=d.get("free_space_eur", 0.0),
+                    source="degiro_stale",
+                    last_updated=cached.get("saved_at")
+                )]
             return [InvestmentData(
                 name="Stocks",
                 category="stocks",
@@ -511,14 +576,12 @@ class DegiroConnector(BaseConnector):
                     api._credentials.int_account = account_id
                     _save_session(session["session_id"], account_id)
                 else:
-                    # Kan int_account niet ophalen, session waarschijnlijk verlopen
-                    _clear_session()
-                    return [InvestmentData(
-                        name="Stocks",
-                        category="stocks",
-                        source="session_expired",
-                        last_updated="Sessie verlopen — klik 'Opnieuw verbinden'"
-                    )]
+                    # Sessie verlopen — probeer auto re-login via env vars
+                    auto = self._try_auto_relogin()
+                    if auto:
+                        return [auto]
+                    # Geen auto re-login mogelijk — val terug op cache
+                    return self._stale_or_expired()
 
             investment = self._fetch_portfolio(api)
 
@@ -536,30 +599,11 @@ class DegiroConnector(BaseConnector):
             return [investment]
 
         except Exception as e:
-            # Bij elke fout: val terug op cache (niet sessie wissen)
-            cached = load_cache(CACHE_KEY)
-            if cached and "data" in cached and cached["data"]:
-                d = cached["data"]
-                return [InvestmentData(
-                    name=d.get("name", "Stocks"),
-                    category=d.get("category", "stocks"),
-                    current_value_eur=d.get("current_value_eur", 0.0),
-                    monthly_pnl_eur=d.get("monthly_pnl_eur", 0.0),
-                    total_pnl_eur=d.get("total_pnl_eur", 0.0),
-                    daily_pnl_eur=d.get("daily_pnl_eur", 0.0),
-                    free_space_eur=d.get("free_space_eur", 0.0),
-                    source="degiro_stale",
-                    last_updated=cached.get("saved_at")
-                )]
-
-            # Geen cache beschikbaar: dan pas sessie wissen
-            _clear_session()
-            return [InvestmentData(
-                name="Stocks",
-                category="stocks",
-                source="session_expired",
-                last_updated="Sessie verlopen — klik 'Opnieuw verbinden'"
-            )]
+            # Bij elke fout: probeer auto re-login, anders cache fallback
+            auto = self._try_auto_relogin()
+            if auto:
+                return [auto]
+            return self._stale_or_expired()
 
     def get_status(self) -> dict:
         """Geeft verbindingsstatus terug voor het dashboard."""

@@ -6,6 +6,10 @@ __pycache__/
 venv/
 env/
 
+# Environment variables (nooit committen)
+.env
+.env.local
+
 # Secrets & credentials
 *.json
 !frontend/**/*.json

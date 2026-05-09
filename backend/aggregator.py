@@ -76,16 +76,29 @@ def aggregate_all_businesses(businesses: list[BusinessData], period: str = "mtd"
 # ── Monthly chart data ───────────────────────────────────────────────────────
 
 def build_monthly_chart_data(businesses: list[BusinessData]) -> dict:
-    """Bouw chart data: revenue + profit per maand per business."""
-    month_labels = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
-    # Map months: Apr=4..Dec=12 of current-1 year, Jan=1..Mar=3 of current year
-    year, _ = _current_period()
+    """Bouw chart data: revenue + profit per maand per business.
+    Dynamically covers all months with actual data up to and including the current month."""
+    year, cur_month = _current_period()
 
-    month_keys = []
-    for m in range(4, 13):
-        month_keys.append((year - 1, m))
-    for m in range(1, 4):
-        month_keys.append((year, m))
+    # Collect all (year, month) keys that have actual data
+    all_month_keys: set[tuple[int, int]] = set()
+    for biz in businesses:
+        for m in biz.months:
+            all_month_keys.add((m.year, m.month))
+
+    # Always include the current month so the chart is never stale
+    all_month_keys.add((year, cur_month))
+
+    month_keys = sorted(all_month_keys)
+
+    # Build short labels; append year suffix (e.g. "'25") when multiple years are present
+    month_short = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    years_present = {y for y, _ in month_keys}
+    if len(years_present) > 1:
+        month_labels = [f"{month_short[m - 1]} '{str(y)[2:]}" for y, m in month_keys]
+    else:
+        month_labels = [month_short[m - 1] for y, m in month_keys]
 
     datasets = []
     for biz in businesses:
@@ -106,6 +119,9 @@ def build_monthly_chart_data(businesses: list[BusinessData]) -> dict:
 
     return {
         "labels": month_labels,
+        # Include explicit (year, month) pairs so the frontend can filter without
+        # relying on a hardcoded Apr–Mar fiscal mapping.
+        "months": [{"year": y, "month": m} for y, m in month_keys],
         "datasets": datasets,
     }
 

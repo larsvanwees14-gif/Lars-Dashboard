@@ -149,19 +149,24 @@ class ShopifySheetsConnector:
             ).execute()
             rows = result.get("values", [])
 
-            # Layout (0-indexed rows):
-            # Row 0: empty
-            # Row 1: [Nett Revenue, value, ...]  ... [Meta, Google, Total Paid]  ← col F=5,G=6,H=7
-            # Row 2: [Gross Margin..., value, pct, ..., Spend, meta, google, total]
-            # Row 3: [Nett Margin Product..., value, pct, ..., Revenue, meta, google, total]
-            # Row 4: [Nett Margin Business, value, pct, ..., Roas, meta, google, total]
-            # Row 5: [Acc Roas blended, value, ..., % Paid, ...]
+            # Label-gebaseerde detectie: zoek rijen op basis van kolom A inhoud
+            # (rijnummers kunnen per tab variëren)
+            def find_row(keyword):
+                for r in rows:
+                    if r and str(r[0]).strip().lower().startswith(keyword.lower()):
+                        return r
+                return []
 
-            revenue_raw    = _get(rows, 1, 1)   # B2: Nett Revenue value
-            profit_raw     = _get(rows, 4, 1)   # B5: Nett Margin Business value
-            profit_pct_raw = _get(rows, 4, 2)   # C5: Nett Margin Business %
-            google_spend_raw = _get(rows, 2, 6) # G3: Google Spend
-            google_roas_raw  = _get(rows, 4, 6) # G5: Google Roas
+            row_revenue  = find_row("Nett Revenue")
+            row_business = find_row("Nett Margin Business")
+            row_spend    = next((r for r in rows if len(r) > 5 and str(r[5]).strip().lower() == "spend"), [])
+            row_roas     = next((r for r in rows if len(r) > 5 and "roas blended" in str(r[5]).strip().lower()), [])
+
+            revenue_raw    = row_revenue[1]  if len(row_revenue)  > 1 else ""
+            profit_raw     = row_business[1] if len(row_business) > 1 else ""
+            profit_pct_raw = row_business[2] if len(row_business) > 2 else ""
+            google_spend_raw = row_spend[6]  if len(row_spend)    > 6 else ""
+            google_roas_raw  = row_roas[6]   if len(row_roas)     > 6 else ""
 
             revenue = _safe_float(revenue_raw)
             profit = _safe_float(profit_raw)

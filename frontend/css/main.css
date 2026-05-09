@@ -516,6 +516,58 @@ body {
   margin-bottom: 16px;
 }
 
+/* ── Info icon + tooltip ──────────────────────────────────── */
+.info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: default;
+  position: relative;
+  flex-shrink: 0;
+  font-style: italic;
+  line-height: 1;
+  user-select: none;
+}
+
+.info-icon:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+  background: #1e293b;
+  color: #f1f5f9;
+  font-size: 12px;
+  font-weight: 400;
+  font-style: normal;
+  padding: 10px 14px;
+  border-radius: 8px;
+  white-space: pre-line;
+  width: 260px;
+  line-height: 1.6;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  z-index: 999;
+  pointer-events: none;
+}
+
+.info-icon:hover::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 2px);
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-bottom-color: #1e293b;
+  z-index: 999;
+}
+
 /* ── Dividers / misc ──────────────────────────────────────── */
 .mt-4 { margin-top: 16px; }
 .mt-6 { margin-top: 24px; }

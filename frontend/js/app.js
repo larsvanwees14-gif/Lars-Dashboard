@@ -134,12 +134,13 @@ function renderOverview(data) {
         <div><div class="business-name">Revenue & Profit — All Businesses</div></div>
         <div class="period-filter" id="overview-chart-period">
           ${(() => {
+            if (customPeriodActive) return customPeriodBtnsHtml("overview");
             const mn = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
             const isM = overviewChartPeriod.startsWith("m");
             const ms = '<select onchange="setOverviewChartPeriod(this.value)" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:'+(isM?'var(--primary)':'white')+';color:'+(isM?'white':'inherit')+';cursor:pointer"><option value="" '+(isM?'':'selected')+'>Month</option>'+mn.map((n,i)=>'<option value="m'+(i+1)+'" '+(overviewChartPeriod==='m'+(i+1)?'selected':'')+'>'+n+'</option>').join('')+'</select>';
             return ms + ["ytd","prev","yoy"].map(p =>
               '<button class="period-btn '+(p===overviewChartPeriod?'active':'')+'" onclick="setOverviewChartPeriod(\''+p+'\')" style="font-size:11px;padding:2px 8px">'+periodLabels[p]+'</button>'
-            ).join("");
+            ).join("") + '<button class="period-btn" onclick="activateCustomPeriod()" style="font-size:11px;padding:2px 8px">Custom</button>';
           })()}
         </div>
       </div>
@@ -190,7 +191,10 @@ function setOverviewChartPeriod(p) {
 }
 
 function renderOverviewCharts(data) {
-  createOverviewChartFiltered("overview-chart", data.chart_data, overviewChartPeriod);
+  const overviewPeriod = customPeriodActive
+    ? { from: customPeriodFrom, to: customPeriodTo }
+    : overviewChartPeriod;
+  createOverviewChartFiltered("overview-chart", data.chart_data, overviewPeriod);
   if ((data.asset_history || []).length > 0) {
     setTimeout(() => renderAssetHistoryChart("overview-asset-chart", data.asset_history), 50);
   }
@@ -200,6 +204,83 @@ function renderOverviewCharts(data) {
 
 const bolCardPeriods = { landing: "ytd", ret_landing: "ytd", spa_landing: "ytd", revenue: "ytd", margins: "ytd", returns: "ytd", costs: "ytd", overhead: "ytd" };
 const OVERHEAD_TARGETS = { normal: 1500, investment: 1500 }; // per maand
+
+// ── Global custom period ───────────────────────────────────────────────────
+let customPeriodActive = false;
+let customPeriodFrom = { year: new Date().getFullYear(), month: 1 };
+let customPeriodTo   = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
+
+function setCustomPeriod(fromYear, fromMonth, toYear, toMonth) {
+  customPeriodFrom = { year: parseInt(fromYear), month: parseInt(fromMonth) };
+  customPeriodTo   = { year: parseInt(toYear),   month: parseInt(toMonth) };
+  customPeriodActive = true;
+  reRenderAllDashboards();
+}
+
+function activateCustomPeriod() {
+  customPeriodActive = true;
+  reRenderAllDashboards();
+}
+
+function deactivateCustomPeriod() {
+  customPeriodActive = false;
+  reRenderAllDashboards();
+}
+
+function reRenderAllDashboards() {
+  if (!dashboardData) return;
+  // Re-render Bol Business cards
+  const cards = ["landing","ret_landing","spa_landing","revenue","margins","returns","costs","overhead"];
+  cards.forEach(c => updateBolCard(c, dashboardData));
+  // Re-render Total Overview
+  if (typeof renderTotalLandingChart === "function") renderTotalLandingChart(dashboardData);
+  // Re-render Shopify
+  if (typeof renderShopifyKpis === "function") renderShopifyKpis();
+  // Re-render Retailers
+  if (typeof renderRetailers === "function") renderRetailers(dashboardData);
+  // Re-render SP Agency
+  if (typeof renderSpAgency === "function") renderSpAgency().catch(() => {});
+  // Re-render Overview tab
+  renderOverview(dashboardData);
+  setTimeout(() => renderOverviewCharts(dashboardData), 50);
+}
+
+function customPeriodFilterMonths(months) {
+  const fromKey = customPeriodFrom.year * 100 + customPeriodFrom.month;
+  const toKey   = customPeriodTo.year * 100 + customPeriodTo.month;
+  return months.filter(m => {
+    const key = m.year * 100 + m.month;
+    return key >= fromKey && key <= toKey;
+  });
+}
+
+const MN = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+function customPeriodBtnsHtml(cardId) {
+  const years = [];
+  for (let y = 2024; y <= new Date().getFullYear() + 1; y++) years.push(y);
+  const yOpts = years.map(y => `<option value="${y}">${y}</option>`).join("");
+  const mOpts = MN.map((n,i) => `<option value="${i+1}">${n}</option>`).join("");
+
+  function sel(id, opts, val) {
+    return `<select id="${id}" onchange="setCustomPeriod(
+      document.getElementById('cp-fy-${cardId}').value,
+      document.getElementById('cp-fm-${cardId}').value,
+      document.getElementById('cp-ty-${cardId}').value,
+      document.getElementById('cp-tm-${cardId}').value
+    )" style="font-size:11px;padding:2px 4px;border:1px solid var(--primary);border-radius:4px;cursor:pointer">${opts}</select>`;
+  }
+
+  return `
+    <span style="font-size:11px;color:var(--text-muted)">Van</span>
+    ${sel(`cp-fm-${cardId}`, MN.map((n,i)=>`<option value="${i+1}" ${customPeriodFrom.month===i+1?'selected':''}>${n}</option>`).join(""), customPeriodFrom.month)}
+    ${sel(`cp-fy-${cardId}`, years.map(y=>`<option value="${y}" ${customPeriodFrom.year===y?'selected':''}>${y}</option>`).join(""), customPeriodFrom.year)}
+    <span style="font-size:11px;color:var(--text-muted)">Tot</span>
+    ${sel(`cp-tm-${cardId}`, MN.map((n,i)=>`<option value="${i+1}" ${customPeriodTo.month===i+1?'selected':''}>${n}</option>`).join(""), customPeriodTo.month)}
+    ${sel(`cp-ty-${cardId}`, years.map(y=>`<option value="${y}" ${customPeriodTo.year===y?'selected':''}>${y}</option>`).join(""), customPeriodTo.year)}
+    <button onclick="deactivateCustomPeriod()" style="font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;cursor:pointer;background:var(--card-bg);color:var(--text)">✕ Reset</button>
+  `;
+}
 
 function toggleRetDropdown() {
   const dd = document.getElementById("ret-dropdown");
@@ -372,38 +453,44 @@ async function renderTotalLandingChart() {
   const curMonth = new Date().getMonth() + 1;
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
-  // Build combined months array for the year
-  const year = period === "yoy" ? curYear - 1 : curYear;
-
   function getVal(arr, yr, mo, field) {
     if (!arr) return 0;
     const found = arr.find(m => m.year === yr && m.month === mo);
     return found ? (found[field] || 0) : 0;
   }
 
+  // Build combined months — support custom period (multi-year) or single year
   const allCombined = [];
-  for (let m = 1; m <= 12; m++) {
-    const oRev = getVal(bol.months, year, m, "revenue");
-    const oProfit = getVal(bol.months, year, m, "profit");
-    const rRev = getVal(ret?.months, year, m, "revenue");
-    const rFee = getVal(ret?.months, year, m, "fee_lars");
-    const hRev = getVal(hears?.months, year, m, "revenue");
-    const hFee = getVal(hears?.months, year, m, "fee_lars");
-    const sProfit = getVal(spaMonths, year, m, "profit");
-    const shRev = getVal(shopifyMonths, year, m, "revenue");
-    const shProfit = getVal(shopifyMonths, year, m, "profit");
-
-    allCombined.push({
-      month: m, year,
-      label: monthNames[m-1],
-      revenue: oRev + rRev + hRev + sProfit + shRev,
-      profit: oProfit + rFee + hFee + sProfit + shProfit
-    });
+  if (customPeriodActive) {
+    for (let y = customPeriodFrom.year; y <= customPeriodTo.year; y++) {
+      const mStart = y === customPeriodFrom.year ? customPeriodFrom.month : 1;
+      const mEnd   = y === customPeriodTo.year   ? customPeriodTo.month   : 12;
+      for (let m = mStart; m <= mEnd; m++) {
+        allCombined.push({
+          month: m, year: y,
+          label: monthNames[m-1] + (customPeriodFrom.year !== customPeriodTo.year ? ` '${String(y).slice(2)}` : ""),
+          revenue: getVal(bol.months,y,m,"revenue") + getVal(ret?.months,y,m,"revenue") + getVal(hears?.months,y,m,"revenue") + getVal(spaMonths,y,m,"profit") + getVal(shopifyMonths,y,m,"revenue"),
+          profit:  getVal(bol.months,y,m,"profit")  + getVal(ret?.months,y,m,"fee_lars") + getVal(hears?.months,y,m,"fee_lars") + getVal(spaMonths,y,m,"profit") + getVal(shopifyMonths,y,m,"profit")
+        });
+      }
+    }
+  } else {
+    const year = period === "yoy" ? curYear - 1 : curYear;
+    for (let m = 1; m <= 12; m++) {
+      allCombined.push({
+        month: m, year,
+        label: monthNames[m-1],
+        revenue: getVal(bol.months,year,m,"revenue") + getVal(ret?.months,year,m,"revenue") + getVal(hears?.months,year,m,"revenue") + getVal(spaMonths,year,m,"profit") + getVal(shopifyMonths,year,m,"revenue"),
+        profit:  getVal(bol.months,year,m,"profit")  + getVal(ret?.months,year,m,"fee_lars") + getVal(hears?.months,year,m,"fee_lars") + getVal(spaMonths,year,m,"profit") + getVal(shopifyMonths,year,m,"profit")
+      });
+    }
   }
 
-  // Filter by period
+  // Filter by period (skipped when custom active — allCombined already filtered)
   let filtered;
-  if (period.startsWith("m")) {
+  if (customPeriodActive) {
+    filtered = allCombined.filter(m => m.revenue > 0 || m.profit > 0);
+  } else if (period.startsWith("m")) {
     const sel = parseInt(period.substring(1));
     filtered = allCombined.filter(m => m.month === sel);
   } else if (period === "prev") {
@@ -495,6 +582,24 @@ function bolFilterMonths(bol, period) {
   const curYear = new Date().getFullYear();
   const curMonth = new Date().getMonth() + 1;
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  // Global custom period overrides all card periods
+  if (customPeriodActive) {
+    const filtered = customPeriodFilterMonths(bol.months.filter(m => m.revenue > 0));
+    const fromKey = customPeriodFrom.year * 100 + customPeriodFrom.month;
+    const toKey   = customPeriodTo.year * 100 + customPeriodTo.month;
+    const allMonths = [];
+    for (let y = customPeriodFrom.year; y <= customPeriodTo.year; y++) {
+      const mStart = y === customPeriodFrom.year ? customPeriodFrom.month : 1;
+      const mEnd   = y === customPeriodTo.year   ? customPeriodTo.month   : 12;
+      for (let m = mStart; m <= mEnd; m++) {
+        const found = bol.months.find(d => d.year === y && d.month === m);
+        const empty = { revenue:0, profit:0, expenses:0, gross_margin:0, gross_margin_pct:0, nett_margin_product:0, nett_margin_product_pct:0, profit_pct:0, returns:0, return_pct:0, non_saleable_costs:0, storage_cost:0, recovery_clients:0 };
+        allMonths.push(found || { ...empty, year: y, month: m, label: monthNames[m-1] + " " + y });
+      }
+    }
+    return { allMonths, filtered: filtered.length ? filtered : allMonths };
+  }
   const empty = { revenue:0, profit:0, expenses:0, gross_margin:0, gross_margin_pct:0, nett_margin_product:0, nett_margin_product_pct:0, profit_pct:0, returns:0, return_pct:0, non_saleable_costs:0, storage_cost:0, recovery_clients:0 };
 
   // Specific month selected (e.g. "m1" = January, "m2" = February)
@@ -555,6 +660,9 @@ function _renderBolInner(data) {
   window._fullDashData = data;
 
   function cardPeriodBtns(cardId) {
+    if (customPeriodActive) {
+      return customPeriodBtnsHtml(cardId);
+    }
     const cp = bolCardPeriods[cardId] || "ytd";
     const isMonth = cp.startsWith("m");
     const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -565,7 +673,8 @@ function _renderBolInner(data) {
       <option value="" ${!isMonth?'selected':''}>Month</option>
       ${months.map((n,i) => `<option value="m${i+1}" ${cp==='m'+(i+1)?'selected':''}>${n}</option>`).join("")}
     </select>`;
-    return monthSelect + btns;
+    const customBtn = `<button class="period-btn" onclick="activateCustomPeriod()" style="font-size:11px;padding:2px 8px">Custom</button>`;
+    return monthSelect + btns + customBtn;
   }
 
   // Total overview (above sub-tabs)
@@ -589,9 +698,11 @@ function _renderBolInner(data) {
     <option value="" ${!isLandingMonth?'selected':''}>Month</option>
     ${landingMonthNames.map((n,i) => `<option value="m${i+1}" ${landingPeriod==='m'+(i+1)?'selected':''}>${n}</option>`).join("")}
   </select>`;
-  const landingPeriodBtns = landingMonthSelect + ["ytd","prev","yoy"].map(p =>
-    `<button class="period-btn bol-pb-landing ${p === landingPeriod ? 'active' : ''}" data-period="${p}" onclick="setBolCardPeriod('landing','${p}')" style="font-size:11px;padding:2px 8px">${periodLabels[p]}</button>`
-  ).join("");
+  const landingPeriodBtns = customPeriodActive
+    ? customPeriodBtnsHtml("landing")
+    : landingMonthSelect + ["ytd","prev","yoy"].map(p =>
+        `<button class="period-btn bol-pb-landing ${p === landingPeriod ? 'active' : ''}" data-period="${p}" onclick="setBolCardPeriod('landing','${p}')" style="font-size:11px;padding:2px 8px">${periodLabels[p]}</button>`
+      ).join("") + `<button class="period-btn" onclick="activateCustomPeriod()" style="font-size:11px;padding:2px 8px">Custom</button>`;
 
   // ── Total Overview: combine all business units ──
   const totalPeriodBtns = cardPeriodBtns("total_landing");
@@ -599,7 +710,10 @@ function _renderBolInner(data) {
   document.getElementById("bol-landing-content").innerHTML = `
     <div class="card" style="margin-bottom:16px">
       <div style="padding:16px 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-        <div style="font-size:15px;font-weight:600">Bol Business — Total Overview 2026</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:15px;font-weight:600">Bol Business — Total Overview 2026</span>
+          <div class="info-icon" data-tooltip="Gecombineerd overzicht van alle business units:\n• OpalGoods — Bol.com omzet + Shopify\n• Retailers (D&R + Hears) — volledige omzet van het merk + alleen Profit Lars\n• SP Agency — maandelijkse fee\n\nProfit = wat Lars netto verdient over alle businesses.">ℹ</div>
+        </div>
         <div class="period-filter">${totalPeriodBtns}</div>
       </div>
       <div style="padding:0 20px;display:flex;gap:24px;flex-wrap:wrap" id="total-overview-kpis"></div>
@@ -767,7 +881,7 @@ function renderBolCardHtml(cardId, bol, lastRefresh, periodBtnsHtml) {
 
   return `<div class="business-card">
     <div class="business-header">
-      <div style="display:flex;align-items:center;gap:10px"><img src="img/Opalgoods Logo.png" style="height:32px"><div class="business-name">${title}${cardId === "revenue" ? ' <span style="font-size:12px;font-weight:400;color:var(--text-muted)">(without Shopify)</span>' : ''}</div></div>
+      <div style="display:flex;align-items:center;gap:10px"><img src="img/Opalgoods Logo.png" style="height:32px"><div class="business-name">${title}${cardId === "revenue" ? ' <span style="font-size:12px;font-weight:400;color:var(--text-muted)">(without Shopify)</span>' : ''}</div>${cardId === "revenue" ? `<div class="info-icon" data-tooltip="Dit overzicht gaat puur over OpalGoods via Bol.com.\n\nShopify omzet en winst zijn hier niet in meegenomen — die staan apart in de Shopify sectie hieronder.\n\nBron: OpalGoods Google Sheet (maandtabs).">ℹ</div>` : ''}</div>
       <div class="period-filter">${periodBtnsHtml}</div>
     </div>
     <div class="business-metrics">${kpiHtml}</div>
@@ -848,7 +962,9 @@ async function renderSpAgency() {
 
   // Filter based on period
   let filtered;
-  if (spaPeriod.startsWith("m")) {
+  if (customPeriodActive) {
+    filtered = customPeriodFilterMonths(allMonths);
+  } else if (spaPeriod.startsWith("m")) {
     const selMonth = parseInt(spaPeriod.substring(1));
     filtered = allMonths.filter(m => m.year === curYear && m.month === selMonth);
   } else if (spaPeriod === "prev") {
@@ -864,9 +980,11 @@ async function renderSpAgency() {
 
   const totalProfit = filtered.reduce((t, m) => t + (m.profit || 0), 0);
 
-  // Chart: full year or single month
+  // Chart: full year or single month (custom period shows all filtered months directly)
   let chartMonths;
-  if (spaPeriod.startsWith("m") || spaPeriod === "prev") {
+  if (customPeriodActive) {
+    chartMonths = filtered.map(m => ({ month: m.month, year: m.year, profit: m.profit || 0, label: monthNames[(m.month||1)-1] + " '" + String(m.year).slice(2) }));
+  } else if (spaPeriod.startsWith("m") || spaPeriod === "prev") {
     chartMonths = filtered.map(m => ({ month: m.month, profit: m.profit || 0, label: monthNames[(m.month||1)-1] }));
   } else {
     const year = spaPeriod === "yoy" ? curYear - 1 : curYear;
@@ -890,9 +1008,11 @@ async function renderSpAgency() {
     <option value="" ${!isMonth?'selected':''}>Month</option>
     ${monthNames.map((n,i) => `<option value="m${i+1}" ${spaPeriod==='m'+(i+1)?'selected':''}>${n}</option>`).join("")}
   </select>`;
-  const periodBtns = monthSelect + ["ytd","prev","yoy"].map(p =>
-    `<button class="period-btn ${p === spaPeriod ? 'active' : ''}" data-period="${p}" onclick="setSpaPeriod('${p}')" style="font-size:11px;padding:2px 8px">${periodLabels[p]}</button>`
-  ).join("");
+  const periodBtns = customPeriodActive
+    ? customPeriodBtnsHtml("spa")
+    : monthSelect + ["ytd","prev","yoy"].map(p =>
+        `<button class="period-btn ${p === spaPeriod ? 'active' : ''}" data-period="${p}" onclick="setSpaPeriod('${p}')" style="font-size:11px;padding:2px 8px">${periodLabels[p]}</button>`
+      ).join("") + `<button class="period-btn" onclick="activateCustomPeriod()" style="font-size:11px;padding:2px 8px">Custom</button>`;
 
   document.getElementById("bol-spagency-content").innerHTML = `
     <button onclick="switchBolView('landing')" style="background:none;border:none;color:var(--primary);font-size:13px;cursor:pointer;padding:0 0 16px 0">← Back to Bol Business</button>
@@ -1008,6 +1128,7 @@ function renderRetailers(data) {
   window._retData = ret;
 
   function retCardPeriodBtns(cardId) {
+    if (customPeriodActive) return customPeriodBtnsHtml(cardId);
     const cp = retailersCardPeriods[cardId] || "ytd";
     const isMonth = cp.startsWith("m");
     const mNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -1015,9 +1136,10 @@ function renderRetailers(data) {
       <option value="" ${!isMonth?'selected':''}>Month</option>
       ${mNames.map((n,i) => `<option value="m${i+1}" ${cp==='m'+(i+1)?'selected':''}>${n}</option>`).join("")}
     </select>`;
+    const customBtn = `<button class="period-btn" onclick="activateCustomPeriod()" style="font-size:11px;padding:2px 8px">Custom</button>`;
     return monthSelect + ["ytd","prev","yoy"].map(p =>
       `<button class="period-btn ${p === cp ? 'active' : ''}" data-period="${p}" onclick="setRetailersCardPeriod('${cardId}','${p}')" style="font-size:11px;padding:2px 8px">${periodLabels[p]}</button>`
-    ).join("");
+    ).join("") + customBtn;
   }
 
   function retFilterMonths(period) {
@@ -1038,10 +1160,7 @@ function renderRetailers(data) {
   const { filtered: fAll } = retFilterMonths(retailersCardPeriods.ret_revenue);
   const sumRev = fAll.reduce((t,m) => t + m.revenue, 0);
   const sumProfit = fAll.reduce((t,m) => t + m.profit, 0);
-  const sumExp = sumRev - sumProfit;
   const margin = sumRev > 0 ? (sumProfit / sumRev * 100) : 0;
-  const sumGM = fAll.reduce((t,m) => t + (m.gross_margin||0), 0);
-  const sumNPM = fAll.reduce((t,m) => t + (m.nett_margin_product||0), 0);
   const sumFee = fAll.reduce((t,m) => t + (m.fee_lars||0), 0);
 
   const profitColor = sumProfit >= 0 ? "var(--green)" : "var(--red)";
@@ -1075,12 +1194,8 @@ function renderRetailers(data) {
       </div>
       <div class="business-metrics">
         <div><div class="metric-label">Revenue</div><div class="metric-value">${eur(sumRev)}</div></div>
-        <div><div class="metric-label">Profit D&R</div><div class="metric-value">${eur(sumProfit)}</div></div>
+        <div><div class="metric-label">Profit D&R</div><div class="metric-value" style="color:var(--primary)">${eur(sumProfit)}</div></div>
         <div><div class="metric-label">Margin</div><div class="metric-value">${margin.toFixed(1)}%</div></div>
-      </div>
-      <div class="business-metrics" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-        <div><div class="metric-label">Gross Margin</div><div class="metric-value">${eur(sumGM)} (${sumRev > 0 ? Math.round(sumGM/sumRev*100) : 0}%)</div></div>
-        <div><div class="metric-label">Nett Product</div><div class="metric-value">${eur(sumNPM)} (${sumRev > 0 ? Math.round(sumNPM/sumRev*100) : 0}%)</div></div>
         <div><div class="metric-label">Profit Lars</div><div class="metric-value" style="color:var(--green)">${eur(sumFee)} (${sumRev > 0 ? Math.round(sumFee/sumRev*100) : 0}%)</div></div>
       </div>
       <div class="chart-wrap" style="height:220px;margin-top:16px"><canvas id="ret-chart-revenue"></canvas></div>
@@ -1098,19 +1213,9 @@ function renderRetailers(data) {
     const hRev = hAll.reduce((t,m) => t + m.revenue, 0);
     const hProfit = hAll.reduce((t,m) => t + m.profit, 0);
     const hMargin = hRev > 0 ? (hProfit / hRev * 100) : 0;
-    const hGM = hAll.reduce((t,m) => t + (m.gross_margin||0), 0);
-    const hNPM = hAll.reduce((t,m) => t + (m.nett_margin_product||0), 0);
     const hFee = hAll.reduce((t,m) => t + (m.fee_lars||0), 0);
 
-    const isHMonth = hPeriod.startsWith("m");
-    const hMonthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    const hMonthSelect = `<select onchange="setRetailersCardPeriod('hears_revenue', this.value)" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:${isHMonth?'var(--primary)':'white'};color:${isHMonth?'white':'inherit'};cursor:pointer">
-      <option value="" ${!isHMonth?'selected':''}>Month</option>
-      ${hMonthNames.map((n,i) => `<option value="m${i+1}" ${hPeriod==='m'+(i+1)?'selected':''}>${n}</option>`).join("")}
-    </select>`;
-    const hPeriodBtns = hMonthSelect + ["ytd","prev","yoy"].map(p =>
-      `<button class="period-btn ${p === hPeriod ? 'active' : ''}" data-period="${p}" onclick="setRetailersCardPeriod('hears_revenue','${p}')" style="font-size:11px;padding:2px 8px">${periodLabels[p]}</button>`
-    ).join("");
+    const hPeriodBtns = retCardPeriodBtns("hears_revenue");
 
     document.getElementById("bol-retailers-content").innerHTML += `
       <div class="business-card" style="margin-bottom:20px">
@@ -1120,12 +1225,8 @@ function renderRetailers(data) {
         </div>
         <div class="business-metrics">
           <div><div class="metric-label">Revenue</div><div class="metric-value">${eur(hRev)}</div></div>
-          <div><div class="metric-label">Profit Hears</div><div class="metric-value">${eur(hProfit)}</div></div>
+          <div><div class="metric-label">Profit Hears</div><div class="metric-value" style="color:var(--primary)">${eur(hProfit)}</div></div>
           <div><div class="metric-label">Margin</div><div class="metric-value">${hMargin.toFixed(1)}%</div></div>
-        </div>
-        <div class="business-metrics" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-          <div><div class="metric-label">Gross Margin</div><div class="metric-value">${eur(hGM)} (${hRev > 0 ? Math.round(hGM/hRev*100) : 0}%)</div></div>
-          <div><div class="metric-label">Nett Product</div><div class="metric-value">${eur(hNPM)} (${hRev > 0 ? Math.round(hNPM/hRev*100) : 0}%)</div></div>
           <div><div class="metric-label">Profit Lars</div><div class="metric-value" style="color:var(--green)">${eur(hFee)} (${hRev > 0 ? Math.round(hFee/hRev*100) : 0}%)</div></div>
         </div>
         <div class="chart-wrap" style="height:220px;margin-top:16px"><canvas id="hears-chart-revenue"></canvas></div>
@@ -1194,8 +1295,8 @@ function renderRetailersCharts() {
   // Dore and Rose chart
   makeRetChart("ret-chart-revenue", retailersCardPeriods.ret_revenue, [
     { label: "Revenue", mapper: m => m.revenue, backgroundColor: "rgba(59,130,246,0.7)", borderRadius: 4 },
-    { label: "Profit", mapper: m => m.profit, backgroundColor: "rgba(34,197,94,0.5)", borderRadius: 4 },
-    { label: "Profit Lars", mapper: m => m.fee_lars || 0, backgroundColor: "rgba(249,115,22,0.5)", borderRadius: 4 }
+    { label: "Profit", mapper: m => m.profit, backgroundColor: "rgba(147,197,253,0.8)", borderRadius: 4 },
+    { label: "Profit Lars", mapper: m => m.fee_lars || 0, backgroundColor: "rgba(34,197,94,0.5)", borderRadius: 4 }
   ]);
 
   // Hears chart
@@ -1209,8 +1310,8 @@ function renderRetailersCharts() {
       if (hCanvas._chart) hCanvas._chart.destroy();
       const hDs = [
         { label: "Revenue", data: hMonths.map(m => m.revenue), backgroundColor: "rgba(59,130,246,0.7)", borderRadius: 4 },
-        { label: "Profit", data: hMonths.map(m => m.profit), backgroundColor: "rgba(34,197,94,0.5)", borderRadius: 4 },
-        { label: "Profit Lars", data: hMonths.map(m => m.fee_lars || 0), backgroundColor: "rgba(249,115,22,0.5)", borderRadius: 4 }
+        { label: "Profit", data: hMonths.map(m => m.profit), backgroundColor: "rgba(147,197,253,0.8)", borderRadius: 4 },
+        { label: "Profit Lars", data: hMonths.map(m => m.fee_lars || 0), backgroundColor: "rgba(34,197,94,0.5)", borderRadius: 4 }
       ];
       hCanvas._chart = new Chart(hCanvas.getContext("2d"), {
         type: "bar", data: { labels: hLabels, datasets: hDs }, plugins: [datalabels],
@@ -1825,36 +1926,43 @@ function renderEntities(data) {
 
 // ── Quarterly entity detail view ──────────────────────────────
 
-let qFilterFrom = null;  // e.g. "2025_Annual" or "2026_Q1"
-let qFilterTo = null;
+let qSelectedYear = new Date().getFullYear();
+let qSelectedQuarters = new Set(); // empty = volledig jaar
 let qCurrentEntity = null;
 let qAllData = [];
 
-function setQFilter(from, to) {
-  qFilterFrom = from;
-  qFilterTo = to;
-  if (qCurrentEntity && qAllData.length) {
-    renderEntityDetailView(qCurrentEntity, qAllData);
+function selectQYear(year) {
+  qSelectedYear = year;
+  qSelectedQuarters = new Set();
+  if (qCurrentEntity && qAllData.length) renderEntityDetailView(qCurrentEntity, qAllData);
+}
+
+function toggleQQuarter(q) {
+  if (qSelectedQuarters.has(q)) {
+    qSelectedQuarters.delete(q);
+  } else {
+    qSelectedQuarters.add(q);
   }
+  if (qCurrentEntity && qAllData.length) renderEntityDetailView(qCurrentEntity, qAllData);
+}
+
+function selectFullYear() {
+  qSelectedQuarters = new Set();
+  if (qCurrentEntity && qAllData.length) renderEntityDetailView(qCurrentEntity, qAllData);
+}
+
+function getQNum(d) {
+  if (d.quarter) return d.quarter;
+  if (d.period && /^Q\d/.test(d.period)) return parseInt(d.period[1]);
+  return null;
 }
 
 function filterQuarterlyData(data) {
-  if (!qFilterFrom && !qFilterTo) return data;
-  const fromKey = qFilterFrom || data[0]?.sort_key || 0;
-  const toKey = qFilterTo || data[data.length - 1]?.sort_key || 99999;
-
-  // Parse sort_key from filter value: "2025_Annual" → 20250, "2026_Q1" → 20261
-  function parseFilterKey(val) {
-    if (!val) return null;
-    const parts = val.split("_");
-    const year = parseInt(parts[0]);
-    if (parts[1] === "Annual") return year * 10;
-    return year * 10 + parseInt(parts[1].replace("Q", ""));
+  let filtered = data.filter(d => d.year === qSelectedYear);
+  if (qSelectedQuarters.size > 0) {
+    filtered = filtered.filter(d => qSelectedQuarters.has(getQNum(d)));
   }
-
-  const fk = parseFilterKey(qFilterFrom) || 0;
-  const tk = parseFilterKey(qFilterTo) || 99999;
-  return data.filter(d => (d.sort_key || 0) >= fk && (d.sort_key || 0) <= tk);
+  return filtered;
 }
 
 async function openEntityDetail(entitySlug) {
@@ -2027,33 +2135,45 @@ function renderEntityDetailView(entitySlug, allQuarters) {
       `;
     }
 
-    // Build ALL possible periods (2024-current year+1), not just uploaded ones
     const curYear = new Date().getFullYear();
     const uploadedKeys = new Set(allQuarters.map(q => q.period === "annual" ? `${q.year}_Annual` : `${q.year}_${q.period}`));
-    const allPeriods = [];
-    for (let y = 2025; y <= curYear + 1; y++) {
-      allPeriods.push({ val: `${y}_Annual`, label: `${y} (Annual)`, hasData: uploadedKeys.has(`${y}_Annual`) });
-      for (let q = 1; q <= 4; q++) {
-        allPeriods.push({ val: `${y}_Q${q}`, label: `Q${q} ${y}`, hasData: uploadedKeys.has(`${y}_Q${q}`) });
-      }
-    }
 
-    const makeOptions = (selected) => allPeriods.map(p =>
-      `<option value="${p.val}" ${selected === p.val ? 'selected' : ''}>${p.label}${p.hasData ? ' ✅' : ''}</option>`
+    // Available years (2025 up to current year)
+    const years = [];
+    for (let y = 2025; y <= curYear; y++) years.push(y);
+
+    const yearBtnStyle = (y) => {
+      const active = qSelectedYear === y;
+      return `style="padding:8px 20px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:14px;font-weight:${active?'700':'400'};background:${active?'var(--primary)':'var(--card-bg)'};color:${active?'#fff':'var(--text)'}"`;
+    };
+    const qBtnStyle = (q) => {
+      const active = qSelectedQuarters.has(q);
+      const hasData = uploadedKeys.has(`${qSelectedYear}_Q${q}`);
+      return `style="padding:6px 16px;border:1px solid ${active?'var(--primary)':'var(--border)'};border-radius:8px;cursor:pointer;font-size:13px;font-weight:${active?'600':'400'};background:${active?'var(--primary)':'var(--card-bg)'};color:${active?'#fff':'var(--text)'};position:relative"`;
+    };
+    const fullYearActive = qSelectedQuarters.size === 0;
+    const fullYearStyle = `style="padding:6px 16px;border:1px solid ${fullYearActive?'var(--primary)':'var(--border)'};border-radius:8px;cursor:pointer;font-size:13px;font-weight:${fullYearActive?'600':'400'};background:${fullYearActive?'var(--primary)':'var(--card-bg)'};color:${fullYearActive?'#fff':'var(--text)'}"`;
+
+    const yearBtns = years.map(y =>
+      `<button onclick="selectQYear(${y})" ${yearBtnStyle(y)}>${y}</button>`
     ).join("");
 
+    const qBtns = [1,2,3,4].map(q => {
+      const hasData = uploadedKeys.has(`${qSelectedYear}_Q${q}`);
+      return `<button onclick="toggleQQuarter(${q})" ${qBtnStyle(q)}>Q${q}${hasData ? ' <span style="color:inherit;opacity:0.7;font-size:10px">✓</span>' : ''}</button>`;
+    }).join("");
+
     const timelineHtml = `
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-        <span style="font-size:13px;font-weight:500;color:var(--text-muted)">Timeline:</span>
-        <select onchange="qFilterFrom=this.value||null;setQFilter(qFilterFrom,qFilterTo)" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;cursor:pointer">
-          <option value="">From: All</option>
-          ${makeOptions(qFilterFrom)}
-        </select>
-        <span style="font-size:12px;color:var(--text-muted)">→</span>
-        <select onchange="qFilterTo=this.value||null;setQFilter(qFilterFrom,qFilterTo)" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;cursor:pointer">
-          <option value="">To: All</option>
-          ${makeOptions(qFilterTo)}
-        </select>
+      <div style="margin-bottom:20px">
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Jaar</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+          ${yearBtns}
+        </div>
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Kwartaal</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="selectFullYear()" ${fullYearStyle}>Volledig jaar</button>
+          ${qBtns}
+        </div>
       </div>
     `;
 
@@ -2195,25 +2315,38 @@ function renderOverheadSection(bol, periodBtnsHtml) {
     return `<div style="font-size:11px;color:${color};margin-bottom:5px;line-height:1.4">${icon} ${msg}</div>`;
   }
 
+  function kpiCard(label, value, target, ytd, yearlyTarget, accentColor) {
+    const pct = target > 0 ? Math.round(value / target * 100) : 0;
+    const barColor = pct < 80 ? "var(--green)" : pct <= 100 ? "#f59e0b" : "var(--red)";
+    const barWidth = Math.min(pct, 100);
+    const remaining = yearlyTarget - ytd;
+    const perMonth = remainingMonths > 0 ? remaining / remainingMonths : 0;
+    const isOver = remaining < 0;
+    const statusColor = isOver ? "var(--red)" : "var(--green)";
+    const statusIcon = isOver ? "⚠️" : "✅";
+    const statusMsg = isOver
+      ? `<strong>${eur(Math.abs(remaining))}</strong> over budget — max <strong>${eur(Math.max(perMonth,0))}/mnd</strong> nog over`
+      : `Nog <strong>${eur(perMonth)}/mnd</strong> beschikbaar de komende ${remainingMonths} maanden`;
+
+    return `
+      <div style="background:var(--surface-2);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px">${label}</div>
+          <div style="font-size:12px;font-weight:700;color:${barColor};background:${barColor}18;padding:2px 8px;border-radius:12px">${pct}%</div>
+        </div>
+        <div style="font-size:22px;font-weight:700;color:${pct > 100 ? 'var(--red)' : 'inherit'}">${eur(value)}</div>
+        <div style="font-size:11px;color:var(--text-muted)">Target: ${eur(target)}</div>
+        <div style="background:var(--border);border-radius:4px;height:6px;margin:2px 0">
+          <div style="background:${barColor};width:${barWidth}%;height:6px;border-radius:4px;transition:width 0.3s"></div>
+        </div>
+        <div style="font-size:11px;color:${statusColor};margin-top:2px;line-height:1.5">${statusIcon} ${statusMsg}</div>
+      </div>`;
+  }
+
   const kpiHtml = `
-    <div>
-      ${inlineRec(ytdNormal, yearlyNormal)}
-      <div class="metric-label">Normal Overhead</div>
-      <div class="metric-value">${eur(totalNormal)}</div>
-      ${progressBar(totalNormal, targetNormal)}
-    </div>
-    <div>
-      ${inlineRec(ytdInvestment, yearlyInvestment)}
-      <div class="metric-label">Investment Overhead</div>
-      <div class="metric-value">${eur(totalInvestment)}</div>
-      ${progressBar(totalInvestment, targetInvestment)}
-    </div>
-    <div>
-      <div style="height:20px"></div>
-      <div class="metric-label">Total Overhead</div>
-      <div class="metric-value" style="color:${totalOverhead > targetTotal ? 'var(--red)' : 'inherit'}">${eur(totalOverhead)}</div>
-      ${progressBar(totalOverhead, targetTotal)}
-    </div>`;
+    ${kpiCard("Normal Overhead", totalNormal, targetNormal, ytdNormal, yearlyNormal, "#fb923c")}
+    ${kpiCard("Investment Overhead", totalInvestment, targetInvestment, ytdInvestment, yearlyInvestment, "#8b5cf6")}
+    ${kpiCard("Totaal", totalOverhead, targetTotal, ytdNormal + ytdInvestment, yearlyNormal + yearlyInvestment, "#64748b")}`;
 
   // Chart data: all 12 months, Normal + Investment stacked
   const curYear = new Date().getFullYear();
@@ -2248,9 +2381,8 @@ function renderOverheadSection(bol, periodBtnsHtml) {
         </div>
         <div class="period-filter">${periodBtnsHtml}</div>
       </div>
-      <div class="business-metrics" style="grid-template-columns:1fr 1fr 1fr">${kpiHtml}</div>
-      <div style="margin-top:6px;font-size:11px;color:var(--text-muted)">Targets: Normal €1.500/mo · Investment €1.500/mo · Total €3.000/mo</div>
-      <div class="chart-wrap" style="height:220px;margin-top:16px"><canvas id="overhead-chart"></canvas></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:4px">${kpiHtml}</div>
+      <div class="chart-wrap" style="height:240px;margin-top:20px"><canvas id="overhead-chart"></canvas></div>
     </div>`;
 
   const canvas = document.getElementById("overhead-chart");
@@ -2269,23 +2401,27 @@ function renderOverheadSection(bol, periodBtnsHtml) {
     });
   }};
 
+  const normalTarget = mn.map(() => OVERHEAD_TARGETS.normal);
+  const investTarget = mn.map(() => OVERHEAD_TARGETS.investment);
+
   canvas._chart = new Chart(canvas.getContext("2d"), {
     type: "bar",
     data: {
       labels: chartLabels,
       datasets: [
-        { label: "Normal", data: normalData, backgroundColor: "rgba(251,146,60,0.75)", borderRadius: 4, stack: "overhead" },
-        { label: "Investment", data: investData, backgroundColor: "rgba(139,92,246,0.65)", borderRadius: 4, stack: "overhead" },
-        { label: "Target", data: targetData, type: "line", borderColor: "rgba(239,68,68,0.7)", borderWidth: 2, borderDash: [6,4], pointRadius: 0, fill: false, stack: undefined }
+        { label: "Normal", data: normalData, backgroundColor: "rgba(251,146,60,0.8)", borderRadius: 4, barPercentage: 0.4 },
+        { label: "Investment", data: investData, backgroundColor: "rgba(139,92,246,0.75)", borderRadius: 4, barPercentage: 0.4 },
+        { label: "Target Normal", data: period.startsWith("m") || period === "prev" ? normalData.map(() => OVERHEAD_TARGETS.normal) : normalTarget, type: "line", borderColor: "rgba(251,146,60,0.5)", borderWidth: 2, borderDash: [5,4], pointRadius: 0, fill: false },
+        { label: "Target Investment", data: period.startsWith("m") || period === "prev" ? investData.map(() => OVERHEAD_TARGETS.investment) : investTarget, type: "line", borderColor: "rgba(139,92,246,0.5)", borderWidth: 2, borderDash: [5,4], pointRadius: 0, fill: false }
       ]
     },
     plugins: [datalabels],
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: true, position: "top", labels: { font: { size: 11 } } } },
+      plugins: { legend: { display: true, position: "top", labels: { font: { size: 11 }, filter: i => i.datasetIndex < 2 } } },
       scales: {
-        x: { stacked: true },
-        y: { stacked: true, beginAtZero: true, ticks: { callback: v => "€" + (v >= 1000 ? (v/1000).toFixed(0)+"K" : v) } }
+        x: { stacked: false },
+        y: { stacked: false, beginAtZero: true, ticks: { callback: v => "€" + (v >= 1000 ? (v/1000).toFixed(0)+"K" : v) } }
       }
     }
   });
@@ -2301,6 +2437,9 @@ function shopifyFilterMonths(period) {
   const curMonth = new Date().getMonth() + 1;
   const all = shopifyAllMonths;
 
+  if (customPeriodActive) {
+    return customPeriodFilterMonths(all);
+  }
   if (period.startsWith("m")) {
     const selMonth = parseInt(period.substring(1));
     const found = all.find(d => d.year === curYear && d.month === selMonth);
@@ -2489,11 +2628,12 @@ async function loadShopifySection() {
       <button class="period-btn shopify-pb active" data-period="ytd" onclick="setShopifyPeriod('ytd')" style="font-size:11px;padding:2px 8px">Year-to-date</button>
       <button class="period-btn shopify-pb" data-period="prev" onclick="setShopifyPeriod('prev')" style="font-size:11px;padding:2px 8px">Last month</button>
       <button class="period-btn shopify-pb" data-period="yoy" onclick="setShopifyPeriod('yoy')" style="font-size:11px;padding:2px 8px">Last year (YoY)</button>
+      <button class="period-btn" onclick="activateCustomPeriod()" style="font-size:11px;padding:2px 8px">Custom</button>
     </div>
   `;
 
   container.innerHTML = `
-    <div style="margin-top:28px;border-top:3px solid #96bf48;padding-top:28px">
+    <div style="margin-top:28px;border-top:8px solid #96bf48;padding-top:28px">
       <div class="business-card">
         <div class="business-header" style="margin-bottom:20px">
           <img src="img/Shopify Logo.svg" style="height:28px">

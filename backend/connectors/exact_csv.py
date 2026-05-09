@@ -171,8 +171,17 @@ def parse_exact_text(text: str) -> dict:
     wv["bankrente"] = _find_line_amount(lines, "ankrente") or _find_line_amount(lines, "Bankrente")
     wv["rente_lening"] = _find_line_amount(lines, "ente lening") or _find_line_amount(lines, "Rente lening")
 
-    # Resultaat W&V
-    wv["netto_winst"] = balans.get("resultaat", 0.0)
+    # Resultaat W&V — gebruik balans.resultaat indien beschikbaar, anders berekend uit W&V
+    _resultaat_balans = balans.get("resultaat", 0.0)
+    if _resultaat_balans:
+        wv["netto_winst"] = _resultaat_balans
+    else:
+        wv["netto_winst"] = round(
+            wv.get("brutomarge", 0)
+            - wv.get("totaal_bedrijfskosten", 0)
+            - wv.get("financiele_kosten", 0),
+            2
+        )
 
     # Samenvatting kostencategorieën voor dashboard
     wv["kosten_samenvatting"] = {

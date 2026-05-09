@@ -105,17 +105,31 @@ function createOverviewChartFiltered(canvasId, chartData, period) {
     d.profit.forEach((v, i) => { if (v) tProf[i] += v; });
   });
 
-  // Map labels to (year, month) — labels are Apr..Mar
-  const monthMap = [];
-  for (let i = 0; i < 12; i++) {
-    const m = ((3 + i) % 12) + 1; // Apr=4, May=5, ..., Dec=12, Jan=1, Feb=2, Mar=3
-    const y = m >= 4 ? curYear - 1 : curYear;
-    monthMap.push({ month: m, year: y });
+  // Build monthMap from chartData.months when available (dynamic backend range),
+  // falling back to the legacy hardcoded Apr–Mar fiscal year for older data shapes.
+  let monthMap;
+  if (chartData.months && chartData.months.length === numMonths) {
+    monthMap = chartData.months; // [{year, month}, ...] from backend
+  } else {
+    // Legacy fallback: Apr(curYear-1) … Mar(curYear)
+    monthMap = [];
+    for (let i = 0; i < numMonths; i++) {
+      const m = ((3 + i) % 12) + 1;
+      const y = m >= 4 ? curYear - 1 : curYear;
+      monthMap.push({ month: m, year: y });
+    }
   }
 
-  // Filter based on period
+  // Filter based on period (string or custom range object {from, to})
   let indices;
-  if (period && period.startsWith("m")) {
+  if (period && typeof period === "object" && period.from) {
+    const fromKey = period.from.year * 100 + period.from.month;
+    const toKey   = period.to.year   * 100 + period.to.month;
+    indices = monthMap.map((mm, i) => {
+      const key = mm.year * 100 + mm.month;
+      return key >= fromKey && key <= toKey ? i : -1;
+    }).filter(i => i >= 0);
+  } else if (period && period.startsWith("m")) {
     const selMonth = parseInt(period.substring(1));
     indices = monthMap.map((mm, i) => mm.year === curYear && mm.month === selMonth ? i : -1).filter(i => i >= 0);
   } else if (period === "prev") {
