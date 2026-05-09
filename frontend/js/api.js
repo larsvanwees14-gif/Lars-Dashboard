@@ -1,5 +1,5 @@
 // API communicatie met de Flask backend
-const API_BASE = "http://localhost:5050";
+const API_BASE = window.location.hostname === "localhost" ? "http://localhost:5050" : "";
 
 async function fetchDashboard(period = "mtd") {
   const resp = await fetch(`${API_BASE}/api/dashboard?period=${period}`);
