@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"/Users/larswees/Documents/Claude/Lars Dashboard\" && git diff --quiet && git diff --cached --quiet || (git add -u && git diff --cached --quiet || git commit -m \"Auto-sync from Claude Code session\" && git push origin main) 2>&1 | tail -3",
+            "timeout": 30,
+            "statusMessage": "Wijzigingen pushen naar Railway..."
+          }
+        ]
+      }
+    ]
+  }
+}
