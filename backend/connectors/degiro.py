@@ -49,17 +49,20 @@ def _bootstrap_session_from_env():
 
 def _bootstrap_cache_from_env():
     """If DEGIRO_CACHE_JSON env var is set, seed the portfolio cache on startup.
-    This allows injecting locally-fetched portfolio data into Railway."""
+    This allows injecting locally-fetched portfolio data into Railway.
+    DEGIRO_CACHE_JSON should be the raw portfolio dict (not wrapped in {"data":...})."""
     env_cache = os.environ.get("DEGIRO_CACHE_JSON")
     if not env_cache:
         return
-    # Only seed if cache is empty or stale
+    # Only seed if cache is empty / value is zero
     existing = load_cache(CACHE_KEY)
     if existing and "data" in existing and existing["data"].get("current_value_eur", 0) > 0:
         return
     try:
-        data = json.loads(env_cache)
-        save_cache(CACHE_KEY, data)
+        raw = json.loads(env_cache)
+        # Accept both {"current_value_eur": ...} and {"data": {"current_value_eur": ...}}
+        portfolio = raw.get("data", raw)
+        save_cache(CACHE_KEY, portfolio)
     except Exception:
         pass
 
