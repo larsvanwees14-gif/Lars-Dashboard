@@ -29,6 +29,27 @@ IN_APP_TOKEN_FILE = os.path.join(_DEGIRO_DIR, "degiro_in_app_token.json")
 logging.getLogger("degiro_connector").setLevel(logging.ERROR)
 
 
+def _bootstrap_session_from_env():
+    """If DEGIRO_SESSION_JSON env var is set, write it to SESSION_FILE (once).
+    This allows injecting a locally-obtained session into Railway's volume."""
+    env_session = os.environ.get("DEGIRO_SESSION_JSON")
+    if not env_session:
+        return
+    if os.path.exists(SESSION_FILE):
+        return  # already have a file — don't overwrite
+    try:
+        data = json.loads(env_session)
+        os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
+        with open(SESSION_FILE, "w") as f:
+            json.dump(data, f)
+        os.chmod(SESSION_FILE, 0o600)
+    except Exception:
+        pass
+
+
+_bootstrap_session_from_env()
+
+
 def _load_session() -> Optional[dict]:
     """Laad opgeslagen Degiro session."""
     if not os.path.exists(SESSION_FILE):
