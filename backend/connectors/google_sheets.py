@@ -219,9 +219,9 @@ class GoogleSheetsConnector(BaseConnector):
             year = today_year
 
         revenue = block.get("revenue", 0)
-        # profit = Nett Margin Business (full business profit — what the company earns)
-        profit = block.get("profit", 0)
-        # fee_lars lives in extra["fee_lars"] = what Lars personally earns from the brand
+        # Voor Retailers/Hears: gebruik fee_lars (Profit Lars) als profit zodat het overeenkomt
+        # met de Bol Business Total Overview. Voor Opalgoods (geen fee_lars): valt terug op profit.
+        profit = block.get("fee_lars", block.get("profit", 0))
         expenses = revenue - profit if revenue else 0
 
         # Build extra: exclude "revenue" and "profit" (profit is on MonthData directly)
