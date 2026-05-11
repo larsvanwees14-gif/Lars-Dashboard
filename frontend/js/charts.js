@@ -90,9 +90,7 @@ function createOverviewChartFiltered(canvasId, chartData, period) {
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
   // Groepeer: Bol Business vs Rebrain
-  // Shopify wordt apart getoond (eigen kaart) en niet in het gecombineerde totaal meegeteld.
-  const bolNames = ["Bol.com Business", "Bol Business", "Retailers", "Hears", "SP Agency"];
-  const excludeFromTotal = ["shopify"]; // wordt niet in Bol óf Rebrain totaal meegeteld
+  const bolNames = ["Bol.com Business", "Bol Business", "Retailers", "Hears", "SP Agency", "Shopify"];
   const numMonths = chartData.labels.length;
   const bolRevenue = new Array(numMonths).fill(0);
   const bolProfit = new Array(numMonths).fill(0);
@@ -100,7 +98,6 @@ function createOverviewChartFiltered(canvasId, chartData, period) {
   const rebrainProfit = new Array(numMonths).fill(0);
 
   chartData.datasets.forEach(d => {
-    if (excludeFromTotal.some(n => d.business.toLowerCase().includes(n))) return;
     const isBol = bolNames.some(n => d.business.toLowerCase().includes(n.toLowerCase()));
     const tRev = isBol ? bolRevenue : rebrainRevenue;
     const tProf = isBol ? bolProfit : rebrainProfit;
