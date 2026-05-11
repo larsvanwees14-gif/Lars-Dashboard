@@ -469,8 +469,8 @@ async function renderTotalLandingChart() {
         allCombined.push({
           month: m, year: y,
           label: monthNames[m-1] + (customPeriodFrom.year !== customPeriodTo.year ? ` '${String(y).slice(2)}` : ""),
-          revenue: getVal(bol.months,y,m,"revenue") + getVal(ret?.months,y,m,"revenue") + getVal(hears?.months,y,m,"revenue") + getVal(spaMonths,y,m,"profit") + getVal(shopifyMonths,y,m,"revenue"),
-          profit:  getVal(bol.months,y,m,"profit")  + getVal(ret?.months,y,m,"fee_lars") + getVal(hears?.months,y,m,"fee_lars") + getVal(spaMonths,y,m,"profit") + getVal(shopifyMonths,y,m,"profit")
+          revenue: getVal(bol.months,y,m,"revenue") + getVal(ret?.months,y,m,"revenue") + getVal(hears?.months,y,m,"revenue") + getVal(spaMonths,y,m,"profit"),
+          profit:  getVal(bol.months,y,m,"profit")  + getVal(ret?.months,y,m,"fee_lars") + getVal(hears?.months,y,m,"fee_lars") + getVal(spaMonths,y,m,"profit")
         });
       }
     }
@@ -480,8 +480,8 @@ async function renderTotalLandingChart() {
       allCombined.push({
         month: m, year,
         label: monthNames[m-1],
-        revenue: getVal(bol.months,year,m,"revenue") + getVal(ret?.months,year,m,"revenue") + getVal(hears?.months,year,m,"revenue") + getVal(spaMonths,year,m,"profit") + getVal(shopifyMonths,year,m,"revenue"),
-        profit:  getVal(bol.months,year,m,"profit")  + getVal(ret?.months,year,m,"fee_lars") + getVal(hears?.months,year,m,"fee_lars") + getVal(spaMonths,year,m,"profit") + getVal(shopifyMonths,year,m,"profit")
+        revenue: getVal(bol.months,year,m,"revenue") + getVal(ret?.months,year,m,"revenue") + getVal(hears?.months,year,m,"revenue") + getVal(spaMonths,year,m,"profit"),
+        profit:  getVal(bol.months,year,m,"profit")  + getVal(ret?.months,year,m,"fee_lars") + getVal(hears?.months,year,m,"fee_lars") + getVal(spaMonths,year,m,"profit")
       });
     }
   }
