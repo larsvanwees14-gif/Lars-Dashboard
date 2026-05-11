@@ -6,6 +6,3 @@ startCommand = "gunicorn 'backend.server:create_app()' --bind 0.0.0.0:$PORT --wo
 healthcheckPath = "/"
 healthcheckTimeout = 30
 restartPolicyType = "on_failure"
-
-[[volumes]]
-mountPath = "/data"
