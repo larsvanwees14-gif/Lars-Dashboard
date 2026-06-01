@@ -1684,12 +1684,13 @@ function renderInvestments(data) {
       const dailyPnlSign = inv.daily_pnl_eur >= 0 ? "+" : "";
       const dailyPnlColor = inv.daily_pnl_eur >= 0 ? "var(--green)" : "var(--red)";
 
-      // Monthly P&L: current value - earliest snapshot of this month (or previous month's last)
+      // Monthly P&L: current value vs previous month's last snapshot.
+      // Using previous month as baseline gives a stable, meaningful P&L for the month.
+      // (Comparing against this month's snapshot is useless — it's updated every dashboard load.)
       const now = new Date();
       const curYear = now.getFullYear(), curMonth = now.getMonth() + 1;
-      const thisMonthSnaps = history.filter(h => h.year === curYear && h.month === curMonth && h.stocks != null);
       const prevMonthSnaps = history.filter(h => (h.year === curYear && h.month === curMonth - 1) || (h.month === 12 && curMonth === 1 && h.year === curYear - 1)).filter(h => h.stocks != null);
-      const monthBaseSnap = thisMonthSnaps.length ? thisMonthSnaps.reduce((a, b) => a.date < b.date ? a : b) : (prevMonthSnaps.length ? prevMonthSnaps.reduce((a, b) => a.date > b.date ? a : b) : null);
+      const monthBaseSnap = prevMonthSnaps.length ? prevMonthSnaps.reduce((a, b) => a.date > b.date ? a : b) : null;
       const monthBase = monthBaseSnap ? monthBaseSnap.stocks : null;
       const monthPnl = monthBase != null ? inv.value_eur - monthBase : null;
       const monthPnlSign = monthPnl >= 0 ? "+" : "";

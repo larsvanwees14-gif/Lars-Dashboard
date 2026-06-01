@@ -61,11 +61,11 @@ def _update_snap(snap: dict, net_worth: dict, now: datetime):
     snap["updated_at"] = now.isoformat()
 
     breakdown = net_worth.get("breakdown", [])
-    category_map = {"stocks": 0, "crypto": 0, "savings": 0, "loans": 0}
+    category_map = {"stocks": 0.0, "crypto": 0.0, "savings": 0.0, "loans": 0.0}
     for item in breakdown:
         cat = item.get("category", "")
         if cat in category_map:
-            category_map[cat] = round(item.get("value_eur", 0), 0)
+            category_map[cat] = round(item.get("value_eur", 0), 2)
 
     snap.update(category_map)
 
