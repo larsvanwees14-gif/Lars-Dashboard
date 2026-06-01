@@ -30,13 +30,12 @@ logging.getLogger("degiro_connector").setLevel(logging.ERROR)
 
 
 def _bootstrap_session_from_env():
-    """If DEGIRO_SESSION_JSON env var is set, write it to SESSION_FILE (once).
-    This allows injecting a locally-obtained session into Railway's volume."""
+    """If DEGIRO_SESSION_JSON env var is set, always write it to SESSION_FILE.
+    The env var represents the freshest known-good session (set after local login),
+    so it always wins over whatever might already be on the volume."""
     env_session = os.environ.get("DEGIRO_SESSION_JSON")
     if not env_session:
         return
-    if os.path.exists(SESSION_FILE):
-        return  # already have a file — don't overwrite
     try:
         data = json.loads(env_session)
         os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
@@ -48,15 +47,11 @@ def _bootstrap_session_from_env():
 
 
 def _bootstrap_cache_from_env():
-    """If DEGIRO_CACHE_JSON env var is set, seed the portfolio cache on startup.
-    This allows injecting locally-fetched portfolio data into Railway.
-    DEGIRO_CACHE_JSON should be the raw portfolio dict (not wrapped in {"data":...})."""
+    """If DEGIRO_CACHE_JSON env var is set, always seed the portfolio cache.
+    The env var represents the freshest locally-fetched portfolio data.
+    Since Railway's IP is blocked by DeGiro, the env var is always the best source."""
     env_cache = os.environ.get("DEGIRO_CACHE_JSON")
     if not env_cache:
-        return
-    # Only seed if cache is empty / value is zero
-    existing = load_cache(CACHE_KEY)
-    if existing and "data" in existing and existing["data"].get("current_value_eur", 0) > 0:
         return
     try:
         raw = json.loads(env_cache)
