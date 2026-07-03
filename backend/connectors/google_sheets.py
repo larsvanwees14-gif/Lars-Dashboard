@@ -138,10 +138,6 @@ class GoogleSheetsConnector(BaseConnector):
         ).execute()
         rows = result.get("values", [])
 
-        months = []
-        current_month = None
-        block = {}
-
         # Auto-detect label column: check if row labels are in col A or col B
         label_col = 0  # default col A
         for row in rows:
@@ -152,6 +148,12 @@ class GoogleSheetsConnector(BaseConnector):
                 label_col = 0  # col A
                 break
 
+        # Pass 1: collect raw (month_name, block) pairs in sheet order.
+        # Year is NOT determined here — we need the full sequence first.
+        raw_blocks = []
+        current_month = None
+        block = {}
+
         for row in rows:
             if len(row) <= label_col:
                 continue
@@ -160,20 +162,9 @@ class GoogleSheetsConnector(BaseConnector):
             val = row[label_col + 1] if len(row) > label_col + 1 else ""
             pct = row[label_col + 2] if len(row) > label_col + 2 else ""
 
-            # Fee Lars sometimes on its own row (different column layout)
-            fee_label = ""
-            fee_val = ""
-            if label_col == 1 and len(row) > 5:
-                fee_label = str(row[5]).strip()
-                fee_val = row[6] if len(row) > 6 else ""
-            elif label_col == 0 and len(row) > 0:
-                # Fee Lars can be on its own row in col A
-                fee_label = label
-                fee_val = row[1] if len(row) > 1 else ""
-
             if label == "Month":
                 if current_month and block:
-                    months.append(self._build_overview_month(current_month, block))
+                    raw_blocks.append((current_month, block))
                 current_month = str(val).strip()
                 block = {}
             elif label in ("Nett Revenue", "Revenue"):
@@ -194,31 +185,37 @@ class GoogleSheetsConnector(BaseConnector):
             for ci in range(len(row)):
                 cell_str = str(row[ci]).strip()
                 if cell_str == "Profit Fee Lars" and ci + 1 < len(row):
-                    # Highest priority — always overwrite
                     block["fee_lars"] = safe_float(row[ci + 1])
                 elif cell_str in ("Profit Lars", "Fee Lars") and ci + 1 < len(row):
-                    # Only use as fallback if "Profit Fee Lars" not yet found
                     if "fee_lars" not in block:
                         block["fee_lars"] = safe_float(row[ci + 1])
 
-        # Don't forget the last block
         if current_month and block:
-            months.append(self._build_overview_month(current_month, block))
+            raw_blocks.append((current_month, block))
+
+        # Pass 2: assign years based on chronological sequence.
+        # The sheet is a rolling 12-month window; months appear in order.
+        # A year boundary is detected when the month number DECREASES
+        # (e.g., Dec→Jan). This correctly handles sheets with two blocks
+        # for the same month name (e.g., June 2025 and June 2026).
+        months = []
+        year = datetime.now().year - 1  # rolling sheet starts in the previous year
+        prev_month_num = 0
+
+        for month_name, blk in raw_blocks:
+            month_num = MONTH_NAMES.get(month_name.lower(), 0)
+            if not month_num:
+                continue
+            if prev_month_num > 0 and month_num < prev_month_num:
+                year += 1
+            months.append(self._build_overview_month(year, month_num, blk))
+            prev_month_num = month_num
 
         return sorted(months, key=lambda m: (m.year, m.month))
 
-    def _build_overview_month(self, month_name: str, block: dict) -> MonthData:
-        """Converts a month name + data block into a MonthData."""
-        month_num = MONTH_NAMES.get(month_name.lower(), 0)
-        # Determine year: maanden >= de huidige maand = vorig jaar
-        # (de huidige maand is nog niet volledig ingevuld, dus telt als vorig jaar)
-        today_year = datetime.now().year
-        today_month = datetime.now().month
-        if month_num >= today_month:
-            year = today_year - 1
-        else:
-            year = today_year
-
+    def _build_overview_month(self, year: int, month_num: int, block: dict) -> MonthData:
+        """Converts a year + month_num + data block into a MonthData.
+        Year is determined by the caller based on the chronological block sequence."""
         revenue = block.get("revenue", 0)
         # profit = Nett Margin Business (merk-winst). fee_lars (Profit Lars) zit apart in extra.
         # De frontend leest fee_lars rechtstreeks uit extra voor alle Profit Lars-weergaves.
