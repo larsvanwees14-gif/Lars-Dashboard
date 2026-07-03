@@ -41,7 +41,9 @@ def aggregate_all_businesses(businesses: list[BusinessData], period: str = "mtd"
         filtered = _filter_months(biz.months, period)
         rev = sum(m.revenue for m in filtered)
         exp = sum(m.expenses for m in filtered)
-        profit = sum(m.profit for m in filtered)
+        # Voor businesses met fee_lars (Retailers/Hears): gebruik Lars zijn deel als profit.
+        # Voor overige businesses: gebruik de volledige bedrijfswinst.
+        profit = sum(m.extra.get("fee_lars", m.profit) if m.extra else m.profit for m in filtered)
         margin = (profit / rev * 100) if rev > 0 else 0.0
 
         total_revenue += rev
@@ -108,7 +110,8 @@ def build_monthly_chart_data(businesses: list[BusinessData]) -> dict:
         for y, m in month_keys:
             md = month_map.get((y, m))
             rev_data.append(round(md.revenue) if md and md.revenue else None)
-            profit_data.append(round(md.profit) if md and md.profit else None)
+            p = (md.extra.get("fee_lars", md.profit) if md and md.extra else md.profit) if md else None
+            profit_data.append(round(p) if p else None)
 
         datasets.append({
             "business": biz.name,
@@ -138,10 +141,11 @@ def calculate_period_change(businesses: list[BusinessData]) -> dict:
     prev_profit = 0
     for biz in businesses:
         for m in biz.months:
+            p = m.extra.get("fee_lars", m.profit) if m.extra else m.profit
             if m.year == year and m.month == month:
-                current_profit += m.profit
+                current_profit += p
             if m.year == py and m.month == pm:
-                prev_profit += m.profit
+                prev_profit += p
 
     if prev_profit == 0:
         change_pct = 0
