@@ -220,9 +220,9 @@ class GoogleSheetsConnector(BaseConnector):
             year = today_year
 
         revenue = block.get("revenue", 0)
-        # Voor Retailers/Hears: gebruik fee_lars (Profit Lars) als profit zodat het overeenkomt
-        # met de Bol Business Total Overview. Voor Opalgoods (geen fee_lars): valt terug op profit.
-        profit = block.get("fee_lars", block.get("profit", 0))
+        # profit = Nett Margin Business (merk-winst). fee_lars (Profit Lars) zit apart in extra.
+        # De frontend leest fee_lars rechtstreeks uit extra voor alle Profit Lars-weergaves.
+        profit = block.get("profit", 0)
         expenses = revenue - profit if revenue else 0
 
         # Build extra: exclude "revenue" and "profit" (profit is on MonthData directly)
