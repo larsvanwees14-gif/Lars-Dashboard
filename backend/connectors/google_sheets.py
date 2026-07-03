@@ -210,10 +210,11 @@ class GoogleSheetsConnector(BaseConnector):
     def _build_overview_month(self, month_name: str, block: dict) -> MonthData:
         """Converts a month name + data block into a MonthData."""
         month_num = MONTH_NAMES.get(month_name.lower(), 0)
-        # Determine year: maanden na de huidige maand = vorig jaar
+        # Determine year: maanden >= de huidige maand = vorig jaar
+        # (de huidige maand is nog niet volledig ingevuld, dus telt als vorig jaar)
         today_year = datetime.now().year
         today_month = datetime.now().month
-        if month_num > today_month:
+        if month_num >= today_month:
             year = today_year - 1
         else:
             year = today_year
