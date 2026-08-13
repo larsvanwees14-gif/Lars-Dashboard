@@ -1,34 +1,44 @@
 {
-  "months": [
-    {
-      "month": 1,
-      "profit": 6800,
-      "year": 2026
-    },
-    {
-      "month": 2,
-      "profit": 2950,
-      "year": 2026
-    },
-    {
-      "month": 3,
-      "profit": 2950,
-      "year": 2026
-    },
-    {
-      "month": 4,
-      "profit": 2950,
-      "year": 2026
-    },
-    {
-      "month": 5,
-      "profit": 2450,
-      "year": 2026
-    },
-    {
-      "month": 6,
-      "profit": 2150,
-      "year": 2026
-    }
-  ]
+    "months": [
+        {
+            "month": 1,
+            "profit": 6800,
+            "year": 2026
+        },
+        {
+            "month": 2,
+            "profit": 2950,
+            "year": 2026
+        },
+        {
+            "month": 3,
+            "profit": 2950,
+            "year": 2026
+        },
+        {
+            "month": 4,
+            "profit": 2950,
+            "year": 2026
+        },
+        {
+            "month": 5,
+            "profit": 2450,
+            "year": 2026
+        },
+        {
+            "month": 6,
+            "profit": 2150,
+            "year": 2026
+        },
+        {
+            "month": 7,
+            "profit": 1400,
+            "year": 2026
+        },
+        {
+            "month": 8,
+            "profit": 1400,
+            "year": 2026
+        }
+    ]
 }
