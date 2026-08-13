@@ -1,1 +1,9 @@
-{"holdings":[{"symbol":"BTC","amount":null,"value_eur":5831}],"last_updated":"2026-06-01T00:00:00"}
+{
+  "holdings": [
+    {
+      "symbol": "BTC",
+      "value_eur": 5376
+    }
+  ],
+  "last_updated": "2026-08-13T00:00:00"
+}

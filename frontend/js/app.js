@@ -115,7 +115,15 @@ function renderOverview(data) {
   const changeSign = changes.change_pct >= 0 ? "+" : "";
   const changeClass = changes.direction === "up" ? "badge-up" : "badge-down";
 
+  const warningsHtml = (data.data_warnings || []).length ? `
+    <div style="background:#fef3cd;border:1px solid #f0d000;border-radius:8px;padding:12px 16px;margin-bottom:16px">
+      <div style="font-weight:600;margin-bottom:4px">⚠️ Ontbrekende data gedetecteerd</div>
+      ${data.data_warnings.map(w => `<div style="font-size:13px;margin-top:2px">${w}</div>`).join("")}
+    </div>
+  ` : "";
+
   const html = `
+    ${warningsHtml}
     <div class="grid-4" style="margin-bottom:16px">
       <div class="card">
         <div class="card-title">Total Assets</div>

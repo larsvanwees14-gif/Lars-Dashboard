@@ -1,1 +1,27 @@
-{"savings":{"balance_eur":10800,"last_updated":"2026-06-01T00:00:00"}}
+{
+  "savings": {
+    "balance_eur": 9000,
+    "last_updated": "2026-08-13T00:00:00"
+  },
+  "loan_items": [
+    {
+      "name": "cas",
+      "amount_eur": 1600.0,
+      "deadline": ""
+    },
+    {
+      "name": "char",
+      "amount_eur": 1900.0,
+      "deadline": ""
+    },
+    {
+      "name": "borg",
+      "amount_eur": 5000.0,
+      "deadline": ""
+    }
+  ],
+  "loans": {
+    "balance_eur": 8500.0,
+    "last_updated": "2026-08-13T00:00:00"
+  }
+}

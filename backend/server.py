@@ -137,6 +137,33 @@ def create_app() -> Flask:
         all_investments = degiro + revolut + manual
         return businesses, all_investments
 
+    def check_data_completeness(businesses):
+        """Waakhond: vanaf de 4e van de maand moet de vorige maand data hebben.
+        Detecteert stille parser-fouten (hernoemde tabs, gewijzigde sheet-structuur)
+        die anders onopgemerkt blijven. Geeft een lijst waarschuwingen terug."""
+        now = datetime.now()
+        if now.day < 4:
+            return []
+        pm = now.month - 1 if now.month > 1 else 12
+        py = now.year if now.month > 1 else now.year - 1
+        month_names_nl = ["januari", "februari", "maart", "april", "mei", "juni",
+                          "juli", "augustus", "september", "oktober", "november", "december"]
+        warnings = []
+        for biz in businesses:
+            # Sla niet-geconfigureerde of lege businesses over (bijv. US Supplement Brand)
+            if not biz.months:
+                continue
+            has_data = any(
+                m.year == py and m.month == pm and (m.revenue or m.profit)
+                for m in biz.months
+            )
+            if not has_data:
+                warnings.append(
+                    f"{biz.name}: data voor {month_names_nl[pm - 1]} {py} ontbreekt — "
+                    "controleer de sheet (tabnaam gewijzigd?) of vul de maand in"
+                )
+        return warnings
+
     # ── Frontend routes ───────────────────────────────────────────────────────
     @app.route("/")
     def index():
@@ -181,7 +208,8 @@ def create_app() -> Flask:
                 "retailers_detail": retailers_detail,
                 "hears_detail": hears_detail,
                 "last_refresh": datetime.now().isoformat(),
-                "ing_mode": ing_mode
+                "ing_mode": ing_mode,
+                "data_warnings": check_data_completeness(businesses)
             })
         except Exception as e:
             return jsonify({"error": str(e)}), 500
