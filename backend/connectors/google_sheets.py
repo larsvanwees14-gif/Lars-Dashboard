@@ -23,6 +23,9 @@ TAB_FORMATS = [
     "%m-%Y",        # 01-2025
     "%Y-%m",        # 2025-01
     "%b '%y",       # Jan '25
+    "%B '%y",       # January '25
+    "%b %y",        # Jun 26
+    "%B %y",        # June 26
 ]
 
 
